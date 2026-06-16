@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Fall Event Reporting Tracker – AOMC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-size:14px}
+
+/* ── Layout ── */
+#header{background:#1B2A4A;padding:14px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#tabbar{background:#253660;display:flex;padding:0 20px;overflow-x:auto;gap:2px}
+#content{padding:16px 20px;max-width:1080px;margin:0 auto}
+
+/* ── Tabs ── */
+.tab-btn{padding:10px 16px;background:none;border:none;color:#94A8C8;border-bottom:3px solid transparent;font-weight:500;font-size:13px;white-space:nowrap;cursor:pointer}
+.tab-btn.active{color:#E2C46A;border-bottom-color:#E2C46A;font-weight:700}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+
+/* ── KPI row ── */
+#kpiRow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.kpi{background:#fff;border-radius:8px;padding:14px 16px;border:1px solid #E0E6EF}
+.kpi-label{font-size:10px;color:#5E6E8C;font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px}
+.kpi-value{font-size:26px;font-weight:800;line-height:1.1}
+.kpi-sub{font-size:11px;color:#5E6E8C;margin-top:3px}
+
+/* ── Chart cards ── */
+.card{background:#fff;border-radius:8px;padding:16px;border:1px solid #E0E6EF;margin-bottom:14px}
+.card-title{font-weight:700;font-size:12px;color:#1B2A4A;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
+.chart-wrap{position:relative;width:100%;height:180px}
+
+/* ── Two-col grid ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+
+/* ── Incident slides ── */
+.slide{background:#fff;border-radius:8px;border:1px solid #E0E6EF;overflow:hidden;margin-bottom:14px}
+.slide-hdr{background:#1B2A4A;padding:12px 16px;display:flex;align-items:center;gap:12px}
+.slide-num{border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:800;font-size:13px;color:#fff}
+.slide-hdr-text{flex:1;min-width:0}
+.slide-title{color:#fff;font-weight:700;font-size:14px}
+.slide-sub{color:#E2C46A;font-size:11px;margin-top:2px}
+.slide-badge{flex-shrink:0;border-radius:5px;padding:3px 10px;font-weight:700;font-size:11px}
+.slide-body{padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px}
+.field{border-bottom:1px solid #F0F3F8;padding-bottom:4px}
+.fl{font-size:9px;color:#5E6E8C;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.fv{font-size:12px;color:#1B2A4A;font-weight:600}
+
+/* ── Cause list ── */
+.cause-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.cause-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cause-lbl{flex:1;font-size:12px}
+.cause-cnt{background:#F0F3F8;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700}
+
+/* ── Progress bar ── */
+.bar-track{background:#E0E6EF;border-radius:20px;height:8px;overflow:hidden;margin-top:3px}
+.bar-fill{height:100%;border-radius:20px}
+
+/* ── Morse rows ── */
+.morse-row{margin-bottom:10px}
+.morse-lbl{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+
+/* ── Recommendation box ── */
+.rec-box{background:#F7F9FC;border:1px solid #D0DAE8;border-radius:6px;padding:10px;margin-bottom:8px}
+.rec-title{font-size:9px;color:#5E6E8C;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.rec-text{font-size:12px;line-height:1.5}
+
+/* ── Upload ── */
+.dropzone{border:2px dashed #C0CDD8;border-radius:8px;background:#fff;padding:32px 20px;text-align:center;transition:.2s}
+.dropzone.drag{border-color:#0E7C7B;background:#EAF8F7}
+.tag{background:#F0F3F8;border:1px solid #D0DAE8;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace;display:inline-block;margin:2px}
+.unit-btn{padding:5px 12px;border-radius:20px;border:1.5px solid #D0DAE8;background:#fff;color:#5E6E8C;font-size:11px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap}
+.unit-btn:hover{border-color:#0E7C7B;color:#0E7C7B}
+.unit-btn.active{background:#1B2A4A;border-color:#1B2A4A;color:#fff}
+.msg{margin-top:12px;padding:9px 14px;border-radius:6px;font-size:13px;font-weight:600}
+
+/* ── Buttons ── */
+.btn-red{padding:7px 14px;border-radius:6px;border:1px solid #C0392B;background:#fff;color:#C0392B;font-weight:700;font-size:12px;cursor:pointer}
+.btn-teal{padding:7px 14px;border-radius:6px;border:1px solid #0E7C7B;background:#fff;color:#0E7C7B;font-weight:700;font-size:12px;cursor:pointer}
+.btn-upload{background:#0E7C7B;color:#fff;padding:8px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer;border:none}
+
+/* ── Filter selects ── */
+.fsel{padding:6px 10px;border-radius:5px;border:1px solid #253660;background:#253660;color:#fff;font-size:12px;font-weight:600}
+
+/* ── Responsive ── */
+@media(max-width:680px){
+  #kpiRow{grid-template-columns:1fr 1fr}
+  .g2{grid-template-columns:1fr}
+  .slide-body{grid-template-columns:1fr}
+  .field-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:420px){
+  #kpiRow{grid-template-columns:1fr}
+  .field-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div>
+    <div style="color:#C9A84C;font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase">ARNOT HEALTH · AOMC</div>
+    <div style="color:#fff;font-size:18px;font-weight:800">Fall Event Reporting Tracker</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div id="sbIndicator" onclick="loadFromSupabase()" title="Click to refresh from database" style="background:#5E6E8C;color:#fff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:5px;cursor:pointer;white-space:nowrap">☁ No DB</div>
+    <span style="color:#E2C46A;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">Review Month</span><select id="filterMonth" class="fsel" style="background:#C9A84C;color:#1B2A4A;font-weight:800;border-color:#C9A84C" onchange="applyFilters()"><option value="ALL">ALL Months</option></select>
+    <select id="filterUnit" class="fsel" onchange="applyFilters()"><option value="ALL">ALL Units</option></select>
+    <select id="filterInjury" class="fsel" onchange="applyFilters()"><option value="ALL">ALL Injuries</option></select>
+  </div>
+</div>
+
+<!-- TABS -->
+<div id="tabbar">
+  <button class="tab-btn active" onclick="showTab('overview',this)">📊 Overview</button>
+  <button class="tab-btn" onclick="showTab('trends',this)">📈 Trends</button>
+  <button class="tab-btn" id="incTabBtn" onclick="showTab('incidents',this)">📋 Incidents</button>
+  <button class="tab-btn" onclick="showTab('plato',this)">📋 PLATO</button>
+<button class="tab-btn" onclick="showTab('correlation',this)">🔗 Correlation</button>
+<button class="tab-btn" onclick="showTab('upload',this)">⬆️ Upload</button>
+</div>
+
+<!-- CONTENT -->
+<div id="unitFilterBar" style="background:#fff;border-bottom:1px solid #E0E6EF;padding:8px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;overflow-x:auto">
+  <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#5E6E8C;white-space:nowrap">Filter Unit:</span>
+  <div id="unitBtns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+</div>
+<div id="errBanner" style="display:none;background:#C0392B;color:#fff;padding:12px 20px;font-size:12px;font-weight:600;font-family:monospace;word-break:break-all;white-space:pre-wrap;cursor:pointer;line-height:1.6" onclick="this.style.display='none'" title="Click to dismiss"></div>
+<div id="content">
+
+  <!-- OVERVIEW -->
+  <div id="tab-overview" class="tab-pane active">
+    <div id="kpiRow"></div>
+    <div class="g2">
+      <div class="card"><div class="card-title">Falls by Unit</div><div class="chart-wrap"><canvas id="cUnit"></canvas></div></div>
+      <div class="card"><div class="card-title">Injury Level Distribution</div><div class="chart-wrap"><canvas id="cInjury"></canvas></div></div>
+    </div>
+    <div class="g2">
+      <div class="card"><div class="card-title">Top Causes of Fall</div><div id="causeList"></div></div>
+      <div class="card"><div class="card-title">Falls by Time of Day</div><div class="chart-wrap"><canvas id="cTime"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- TRENDS -->
+  <div id="tab-trends" class="tab-pane">
+    <div class="card"><div class="card-title">Monthly Fall Volume Trend</div><div class="chart-wrap" style="height:200px"><canvas id="cTrend"></canvas></div></div>
+    <div class="g2">
+      <div class="card">
+        <div class="card-title">Huddle Compliance</div>
+        <div class="chart-wrap"><canvas id="cHuddle"></canvas></div>
+        <div id="huddleLbl" style="text-align:center;font-size:13px;font-weight:700;margin-top:8px"></div>
+      </div>
+      <div class="card"><div class="card-title">Morse Score Distribution</div><div id="morseList"></div></div>
+    </div>
+  </div>
+
+  <!-- INCIDENTS -->
+  <div id="tab-incidents" class="tab-pane">
+    <div id="incTitle" style="font-weight:700;font-size:14px;color:#1B2A4A;margin-bottom:12px"></div>
+    <div id="incSlides"></div>
+  </div>
+
+  <!-- UPLOAD -->
+  <!-- PLATO TAB -->
+  <div id="tab-plato" class="tab-pane">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;align-items:start">
+
+      <!-- Upload zone -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Upload PLATO Data</div>
+        <div id="platoDrop" ondrop="platoDrop(event)" onDragOver="event.preventDefault();this.style.borderColor='#0E7C7B';this.style.background='#EAF8F7'" onDragLeave="this.style.borderColor='#C0CDD8';this.style.background='#fff'"
+          style="border:2px dashed #C0CDD8;border-radius:8px;padding:28px 16px;text-align:center;transition:.2s;cursor:pointer" onclick="document.getElementById('platoFileInput').click()">
+          <div style="font-size:30px;margin-bottom:8px">📋</div>
+          <div style="font-weight:700;color:#1B2A4A;margin-bottom:4px">Drag & drop PLATO file here</div>
+          <div style="font-size:12px;color:#5E6E8C;margin-bottom:14px">Supports .xlsx, .xls and .csv</div>
+          <div style="background:#0E7C7B;color:#fff;display:inline-block;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px">Browse File</div>
+          <input type="file" id="platoFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handlePlatoUpload(this)">
+        </div>
+        <div id="platoMsg" style="font-size:12px;margin-top:10px;min-height:18px"></div>
+        <div style="margin-top:12px;padding:10px;background:#F7F9FC;border-radius:6px;border:1px solid #E0E6EF">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#5E6E8C;margin-bottom:6px">Detected Columns (from your file)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Unit (AH)</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Nurse Home Unit</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Today's Date</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">HAPI Compliance</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Fall Compliance</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CAUTI Compliance</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CLABSI Compliance</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Nurse assigned to patient</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Second Nurse Assigned to Patient</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CA / PCT / EMA Assigned to Patient</span>
+            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CA / PCT / EMA Home Unit</span>
+          </div>
+        </div>
+        <div id="platoPreview" style="margin-top:10px;font-size:11px;color:#5E6E8C"></div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button onclick="platoData=[];renderPlato();renderCorrelation();document.getElementById('platoMsg').textContent='Cleared.'" style="padding:6px 12px;border-radius:5px;border:1px solid #C0392B;background:#fff;color:#C0392B;font-weight:700;font-size:11px;cursor:pointer">Clear PLATO Data</button>
+        </div>
+      </div>
+
+      <!-- Quick stats -->
+      <div>
+        <div id="platoKPIs" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card"><div class="card-title">Compliance by Unit</div><div style="position:relative;width:100%;height:180px"><canvas id="platoUnitChart"></canvas></div></div>
+      <div class="card"><div class="card-title">Compliance Trend</div><div style="position:relative;width:100%;height:180px"><canvas id="platoTrendChart"></canvas></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Staff PLATO Compliance</div>
+      <div id="platoStaffTable"></div>
+    </div>
+  </div>
+
+  <!-- CORRELATION TAB -->
+  <div id="tab-correlation" class="tab-pane">
+    <div style="font-weight:700;font-size:15px;margin-bottom:14px">PLATO Compliance vs Fall Events — Correlation Analysis</div>
+    <div id="corrKPIs" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card"><div class="card-title">Compliance % vs Falls by Unit</div><div style="position:relative;width:100%;height:220px"><canvas id="corrScatterChart"></canvas></div></div>
+      <div class="card"><div class="card-title">⚠ Priority: 5+ Observations &amp; ≥1 Fall Event</div><div id="priorityStaffList" style="max-height:220px;overflow-y:auto"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Unit-Level Summary</div>
+      <div id="corrTable"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">All Staff — PLATO Compliance Cross-Reference</div>
+      <div id="corrStaffList" style="max-height:320px;overflow-y:auto"></div>
+    </div>
+    <div id="corrEmpty" style="text-align:center;padding:40px;color:#5E6E8C;display:none">Upload PLATO data on the PLATO tab to see correlation analysis.</div>
+  </div>
+
+  <div id="tab-upload" class="tab-pane" style="max-width:580px">
+    <div style="font-weight:700;font-size:15px;margin-bottom:8px">Import Fall Event Data</div>
+    <p style="font-size:13px;color:#5E6E8C;margin-bottom:14px">Upload an Excel (.xlsx) or CSV export. Columns are auto-mapped.</p>
+    <div class="dropzone" id="dropzone">
+      <div style="font-size:32px;margin-bottom:8px">📂</div>
+      <div style="font-weight:700;margin-bottom:4px">Drag &amp; drop your file here</div>
+      <div style="font-size:12px;color:#5E6E8C;margin-bottom:14px">Supports .xlsx and .csv</div>
+      <label class="btn-upload">Browse File<input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileInput(this)"></label>
+    </div>
+    <div id="uploadMsg"></div>
+    <div class="card" style="margin-top:16px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:8px">Expected Column Headers</div>
+      <div id="tagList"></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px">
+      <button class="btn-red" onclick="clearData()">Clear All Data</button>
+      <button class="btn-teal" onclick="restoreDemo()">Restore Demo Data</button>
+    </div>
+  </div>
+
+</div><!-- /content -->
+
+<script>
+// ── Supabase config ──────────────────────────────────────────────────
+const SB_URL  = 'https://xnsdvdfceflmagfhpycw.supabase.co';
+const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhuc2R2ZGZjZWZsbWFnZmhweWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MTk1NjgsImV4cCI6MjA5NDk5NTU2OH0.UzKZQj4BLxPpH_OCwQR8LyDUeP9YlKn5UtXRFUFaYKA';
+const TABLE   = 'fall_events';
+let sbClient  = null;
+let sbStatus  = 'disconnected'; // 'connected' | 'error' | 'disconnected'
+
+function showRawError(msg){
+  const b=document.getElementById('errBanner');
+  if(b){b.style.display='block';b.textContent='⚠ ERROR (click to dismiss):\n'+msg;}
+  console.error('Dashboard error:', msg);
+}
+window.onerror=function(msg,src,line,col,err){
+  const s=(err?err.stack:msg)||msg||'';
+  // Suppress iframe/srcdoc postMessage errors — these only happen in preview, not when opened as a file
+  if(s.includes('postMessage')||s.includes('cloned')||s.includes('DataClone')) return true;
+  showRawError(s);
+};
+
+function initSupabase(){
+  if(typeof supabase === 'undefined'){
+    showRawError('Supabase library failed to load — check internet connection or CDN.');
+    setSbIndicator('error','Library load failed');
+    return;
+  }
+  try{
+    sbClient = supabase.createClient(SB_URL, SB_KEY);
+    sbStatus = 'connected';
+    setSbIndicator('connected');
+    loadFromSupabase();
+    loadPlatoFromSupabase();
+  } catch(e){
+    sbStatus = 'error';
+    setSbIndicator('error', e.message);
+    showRawError('initSupabase: ' + (e.stack||e.message));
+  }
+}
+
+function setSbIndicator(status, msg){
+  const el = document.getElementById('sbIndicator');
+  const banner = document.getElementById('errBanner');
+  if(!el) return;
+  const styles = {
+    connected:   {bg:'#0E7C7B', text:'☁ Supabase Connected'},
+    saving:      {bg:'#C9A84C', text:'☁ Saving…'},
+    loading:     {bg:'#C9A84C', text:'☁ Loading…'},
+    error:       {bg:'#C0392B', text:'☁ DB Error'},
+    disconnected:{bg:'#5E6E8C', text:'☁ No DB'},
+  };
+  const s = styles[status] || styles.disconnected;
+  el.style.background = s.bg;
+  el.title = msg || '';
+  el.textContent = msg ? `${s.text}: ${msg.slice(0,80)}` : s.text;
+  if(banner){
+    if(status==='error' && msg){
+      banner.style.display='block';
+      banner.textContent = '⚠ SUPABASE ERROR (click to dismiss):\n' + msg;
+    } else if(status==='connected'){
+      banner.style.display='none';
+    }
+  }
+}
+
+function dbToInc(r){
+  const o={
+    facility:r.facility, unit:r.unit, patientInitials:r.patient_initials,
+    sex:r.sex, age:r.age, eventDate:r.event_date, eventTime:r.event_time,
+    injuryLevel:r.injury_level, rlEntered:r.rl_entered, fallRiskLevel:r.fall_risk_level,
+    morseScore:r.morse_score, assisted:r.assisted, causeOfFall:r.cause_of_fall,
+    activityAtFall:r.activity_at_fall, jhHlmScore:r.jh_hlm_score,
+    huddleCompleted:r.huddle_completed, daysToHuddle:r.days_to_huddle,
+    primaryRN:r.primary_rn, primaryUAP:r.primary_uap,
+    painAssessment:r.pain_assessment, neuroAssessment:r.neuro_assessment,
+    skinAssessment:r.skin_assessment, postFallVitals:r.post_fall_vitals,
+    fallLogFlowsheet:r.fall_log_flowsheet, recommendations:r.recommendations,
+    pertinentNotes:r.pertinent_notes, eventDescription:r.event_description,
+    nurseNote:r.nurse_note, providerNote:r.provider_note,
+    callLight:r.call_light, howLong:r.how_long, bmi:r.bmi,
+    eventNumber:r.event_number, eventYear:r.event_year,
+  };
+  const dt=new Date(o.eventDate);
+  o._d=isNaN(dt)?null:dt;
+  return o;
+}
+
+async function loadFromSupabase(){
+  if(!sbClient) return;
+  setSbIndicator('loading');
+  try{
+    const {data, error} = await sbClient.from(TABLE).select('*').order('event_date', {ascending:true});
+    if(error) throw error;
+    if(data && data.length){
+      const incoming = data.map(dbToInc);
+      const existingKeys = new Set(allData.map(rowKey));
+      const newOnes = incoming.filter(d=>!existingKeys.has(rowKey(d)));
+      if(newOnes.length){
+        allData = [...allData, ...newOnes];
+        rebuildFilters();
+        renderAll();
+      }
+    }
+    setSbIndicator('connected');
+  } catch(e){
+    const msg=(e.message||'')+(e.details?' | '+e.details:'')+(e.hint?' | '+e.hint:'');
+    // DataClone/postMessage only happens inside preview iframe — safe to ignore
+    if(msg.includes('DataClone')||msg.includes('postMessage')||msg.includes('cloned')){
+      setSbIndicator('error','Open as file to connect DB');
+      return;
+    }
+    showRawError('loadFromSupabase: '+(e.stack||msg||JSON.stringify(e)));
+    setSbIndicator('error', msg||JSON.stringify(e));
+  }
+}
+
+async function saveToSupabase(rows){
+  if(!sbClient || !rows.length) return;
+  setSbIndicator('saving');
+  try{
+    // upsert using facility+unit+event_date+event_time as natural key
+    const payload = rows.map(r => {
+      const o = {...r};
+      // strip all non-serializable / internal fields
+      delete o._d; delete o._demo;
+      Object.keys(o).forEach(k=>{ if(o[k] instanceof Date) o[k]=o[k].toISOString().slice(0,10); });
+      // map internal keys → DB column names (snake_case)
+      return {
+        facility:          o.facility||null,
+        unit:              o.unit||null,
+        patient_initials:  o.patientInitials||null,
+        sex:               o.sex||null,
+        age:               o.age||null,
+        event_date:        o.eventDate||null,
+        event_time:        o.eventTime ? String(o.eventTime) : null,
+        injury_level:      o.injuryLevel||null,
+        rl_entered:        o.rlEntered||null,
+        fall_risk_level:   o.fallRiskLevel||null,
+        morse_score:       o.morseScore||null,
+        assisted:          o.assisted||null,
+        cause_of_fall:     o.causeOfFall||null,
+        activity_at_fall:  o.activityAtFall||null,
+        jh_hlm_score:      o.jhHlmScore||null,
+        huddle_completed:  o.huddleCompleted||null,
+        days_to_huddle:    o.daysToHuddle||null,
+        primary_rn:        o.primaryRN||null,
+        primary_uap:       o.primaryUAP||null,
+        pain_assessment:   o.painAssessment||null,
+        neuro_assessment:  o.neuroAssessment||null,
+        skin_assessment:   o.skinAssessment||null,
+        post_fall_vitals:  o.postFallVitals||null,
+        fall_log_flowsheet:o.fallLogFlowsheet||null,
+        recommendations:   o.recommendations||null,
+        pertinent_notes:   o.pertinentNotes||null,
+        event_description: o.eventDescription||null,
+        nurse_note:        o.nurseNote||null,
+        provider_note:     o.providerNote||null,
+        send_for_analysis: o.sendForAnalysis||null,
+        area_leader:       o.areaLeader||null,
+        call_light:        o.callLight||null,
+        how_long:          o.howLong||null,
+        bmi:               o.bmi||null,
+        event_number:      o.eventNumber||null,
+        event_year:        o.eventYear||null,
+      };
+    });
+    const {data: upsertData, error} = await sbClient.from(TABLE).upsert(payload, {
+      onConflict: 'facility,unit,event_date,event_time',
+      ignoreDuplicates: false
+    });
+    if(error){
+      const msg = [error.message, error.details, error.hint].filter(Boolean).join(' | ');
+      throw new Error(msg||JSON.stringify(error));
+    }
+    setSbIndicator('connected');
+  } catch(e){
+    const msg=(e.message||'')+(e.details?' | '+e.details:'')+(e.hint?' | '+e.hint:'');
+    if(msg.includes('DataClone')||msg.includes('postMessage')||msg.includes('cloned')){
+      setSbIndicator('error','Open as file to connect DB');
+      return;
+    }
+    showRawError('saveToSupabase: '+(e.stack||msg||JSON.stringify(e)));
+    setSbIndicator('error', msg||JSON.stringify(e));
+  }
+}
+
+const C={navy:"#1B2A4A",navyMid:"#253660",teal:"#0E7C7B",tealLt:"#17A89E",gold:"#C9A84C",goldLt:"#E2C46A",red:"#C0392B",orange:"#E67E22",green:"#27AE60",muted:"#5E6E8C"};
+const INJC={None:C.green,Minor:C.gold,Moderate:C.orange,Major:C.red,Unknown:C.muted};
+const PALC=[C.teal,C.gold,C.navy,C.orange,C.red,C.tealLt,C.goldLt];
+
+const COL_MAP={
+  // identity
+  "facility":"facility","unit":"unit",
+  // patient
+  "patient_name":"patientName","patient_initials":"patientInitials","initials":"patientInitials",
+  "sex":"sex","gender":"sex","age":"age","patient_age":"age","patient_bmi":"bmi",
+  // visit
+  "visit_number":"csn","visit_number_/csn":"csn","mr_number":"mrNumber",
+  "event_number":"eventNumber","event_year":"eventYear",
+  // event
+  "event_date":"eventDate","event_time":"eventTime","injury_level":"injuryLevel",
+  // RL
+  "rl_entered":"rlEntered","rl_event_entered?":"rlEntered",
+  "rl_date_entered":"rlEnteredDate","rl_event_entered___date":"rlEnteredDate",
+  "rl_time_entered":"rlEnteredTime","rl_event_entered___time":"rlEnteredTime",
+  // description (note typo in real file: "Evnet")
+  "evnet_description_from_rl":"eventDescription","event_description_from_rl":"eventDescription",
+  // assessments
+  "post_falls_assessment_in_emr":"postFallAssessment","post_fall_assessment":"postFallAssessment",
+  "post_fall_assessment_time":"postFallAssessmentTime",
+  "post_fall_assessment_documentation_date":"postFallAssessmentDate",
+  "post_fall_assessment_documentation_time":"postFallAssessmentTime2",
+  "fall_log_flowsheet_completed_in_emr":"fallLogFlowsheet","fall_log_flowsheet":"fallLogFlowsheet",
+  "post_fall_vs":"postFallVitals","post_fall_vitals":"postFallVitals",
+  "pain_assessment_post_fall":"painAssessment","pain_assessment":"painAssessment",
+  "neuro_assessment_post_fall":"neuroAssessment","neuro_assessment":"neuroAssessment",
+  "skin_assessment_post_fall":"skinAssessment","skin_assessment":"skinAssessment",
+  "nurse_note_about_event":"nurseNote",
+  "provider_note_regarding_the_event":"providerNote","provider_note_about_event":"providerNote",
+  // risk
+  "morse_score_pre__fall":"morseScore","morse_score_pre_fall":"morseScore",
+  "fall_risk_level":"fallRiskLevel","assisted?":"assisted",
+  "intoxication_impairment_contributing_factor":"intoxication","intoxication/_impairment":"intoxication",
+  "activity_at_time_of_fall":"activityAtFall",
+  "jh_hlm_score":"jhHlmScore",
+  "recommended_device_utilized":"recommendedDevice","recommended_device_use":"recommendedDevice",
+  "cause_of_fall":"causeOfFall",
+  // analysis
+  "send_for_analysis":"sendForAnalysis","area_leader":"areaLeader",
+  // notes (note typo in real file: "Pertient")
+  "pertient_notes_about_event":"pertinentNotes","pertinent_notes_about_event":"pertinentNotes",
+  // huddle
+  "post_fall_huddle_report_done":"huddleCompleted","post_fall_huddle_report":"huddleReport",
+  "post_fall_huddle_report___completed":"huddleCompleted",
+  "date_post_fall_huddle_report_received":"huddleReportDate","date_post_fall_huddle_report":"huddleReportDate",
+  "days_to_receive_post_fall_huddle_report":"daysToHuddle","days_to_receive_post_fall":"daysToHuddle",
+  "post_fall_huddle_report___completion_time":"huddleCompletionTime",
+  "post_fall_huddle_report_completed_within_15_minutes":"huddleWithin15",
+  "post_fall_huddle_report___manager_f_u_date":"huddleManagerFUDate",
+  "post_fall_huddle_manger_f_u_within_48_72_hours":"huddleManagerFU48h",
+  "post_fall_huddle_manager_f/u":"huddleManagerFU",
+  // call light
+  "call_light_on_at_time_of_fall":"callLight","call_light":"callLight",
+  "how_long_was_call_light_on_before_fall?":"howLong","how_long":"howLong",
+  // staff
+  "primary_rn":"primaryRN","primary_uap":"primaryUAP",
+  // pt details
+  "pt_commitment_completed_&_at_bedside":"ptCommitment","pt_communication":"ptCommunication","patient's_bmi":"bmi",
+  // recommendations
+  "recommendations_based_on_aca_post_fall_huddle":"recommendations","recommendations_based_on_aca":"recommendations",
+  "post_fall_huddle_report_completion":"huddleCompletion","post_fall_huddle_report___manager":"huddleManager"
+};
+
+function nk(s){if(s==null)return"";return String(s).trim().toLowerCase().replace(/[\s\/\-]+/g,"_");}
+function initials(n){if(!n||n==="[Redacted]")return"—";return n.trim().split(/\s+/).map(w=>w[0]?w[0].toUpperCase():"").join("").slice(0,4);}
+function fmtVal(v){
+  if(v==null||v==="")return"";
+  if(typeof v==="boolean")return v?"Yes":"No";
+  // Excel dates come as JS Date objects from XLSX
+  if(v instanceof Date)return v.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
+  return String(v);
+}
+function mapRow(raw){
+  const o={};
+  for(const[k,v]of Object.entries(raw)){
+    // skip null/numeric/empty keys (trailing blank columns in Excel)
+    if(k==null||k===""||typeof k==="number")continue;
+    const ks=String(k).trim();
+    if(!ks)continue;
+    const m=COL_MAP[nk(ks)]||nk(ks);
+    o[m]=fmtVal(v);
+  }
+  if(!o.patientInitials&&o.patientName)o.patientInitials=initials(o.patientName);
+  delete o.patientName;
+  // parse event date — may be already formatted string or raw date string
+  const d=new Date(o.eventDate);
+  o._d=isNaN(d)?null:d;
+  return o;
+}
+
+const DEMO=[
+  {facility:"AOMC",unit:"3B",patientInitials:"J.D.",sex:"M",age:74,eventDate:"2024-01-08",eventTime:"02:15",injuryLevel:"Minor",rlEntered:"Yes",fallRiskLevel:"High",morseScore:65,assisted:"No",causeOfFall:"Toileting",activityAtFall:"Ambulating to BR",jhHlmScore:14,huddleCompleted:"Yes",daysToHuddle:1,primaryRN:"Smith, J.",primaryUAP:"Jones, M.",painAssessment:"Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"Bed alarm reinstated; 1:1 for nights",_d:new Date("2024-01-08")},
+  {facility:"AOMC",unit:"3B",patientInitials:"M.L.",sex:"F",age:81,eventDate:"2024-01-22",eventTime:"14:40",injuryLevel:"None",rlEntered:"Yes",fallRiskLevel:"High",morseScore:55,assisted:"Yes",causeOfFall:"Balance/Gait",activityAtFall:"Standing",jhHlmScore:11,huddleCompleted:"Yes",daysToHuddle:1,primaryRN:"Davis, T.",primaryUAP:"Brown, K.",painAssessment:"Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"PT consult placed",_d:new Date("2024-01-22")},
+  {facility:"AOMC",unit:"3C",patientInitials:"R.K.",sex:"M",age:68,eventDate:"2024-02-03",eventTime:"22:00",injuryLevel:"Moderate",rlEntered:"Yes",fallRiskLevel:"High",morseScore:75,assisted:"No",causeOfFall:"Medication Effect",activityAtFall:"Getting OOB",jhHlmScore:16,huddleCompleted:"Yes",daysToHuddle:2,primaryRN:"Wilson, R.",primaryUAP:"Taylor, A.",painAssessment:"Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"Meds reviewed; low bed ordered",_d:new Date("2024-02-03")},
+  {facility:"AOMC",unit:"3B",patientInitials:"B.T.",sex:"F",age:77,eventDate:"2024-02-17",eventTime:"06:30",injuryLevel:"None",rlEntered:"Yes",fallRiskLevel:"Moderate",morseScore:45,assisted:"Yes",causeOfFall:"Equipment Issue",activityAtFall:"Chair Transfer",jhHlmScore:10,huddleCompleted:"No",daysToHuddle:null,primaryRN:"Garcia, L.",primaryUAP:"Martinez, S.",painAssessment:"Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"IV tubing rerouted",_d:new Date("2024-02-17")},
+  {facility:"AOMC",unit:"3C",patientInitials:"E.W.",sex:"F",age:89,eventDate:"2024-03-05",eventTime:"10:10",injuryLevel:"Minor",rlEntered:"Yes",fallRiskLevel:"High",morseScore:60,assisted:"No",causeOfFall:"Confusion/Altered MS",activityAtFall:"Attempting OOB",jhHlmScore:13,huddleCompleted:"Yes",daysToHuddle:1,primaryRN:"Adams, B.",primaryUAP:"Clark, D.",painAssessment:"Not Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"Sitter ordered; reorientation q1h",_d:new Date("2024-03-05")}
+];
+
+let allData=[...DEMO],fUnit="ALL",fInj="ALL",fMonth="ALL";
+const CH={};
+
+// ── Tabs ─────────────────────────────────────────────────────────────
+function showTab(id,btn){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+  if(id==='plato'){renderPlato();}
+  else if(id==='correlation'){renderCorrelation();}
+  else{renderAll();}
+}
+
+// ── Filters ──────────────────────────────────────────────────────────
+function getMonthKey(d){
+  if(!d._d)return null;
+  return d._d.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+}
+function rebuildFilters(){
+  // months — sorted chronologically
+  const monthMap={};
+  allData.forEach(d=>{if(d._d){const k=getMonthKey(d);if(k)monthMap[k]=d._d.getTime();}});
+  const months=Object.keys(monthMap).sort((a,b)=>monthMap[a]-monthMap[b]);
+  const msel=document.getElementById('filterMonth');
+  const cm=msel.value;
+  msel.innerHTML='<option value="ALL">ALL Months</option>'+months.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if(months.includes(cm))msel.value=cm;
+
+  // Combine units from fall data + PLATO data
+  const fallUnits=[...new Set(allData.map(d=>d.unit).filter(Boolean))];
+  const platoUnits=[...new Set(platoData.map(d=>d.unit).filter(Boolean))];
+  const allUnits=[...new Set([...fallUnits,...platoUnits])].sort();
+
+  // Dropdowns
+  const usel=document.getElementById('filterUnit');
+  const cu=usel.value;
+  usel.innerHTML='<option value="ALL">ALL Units</option>'+allUnits.map(u=>`<option>${u}</option>`).join('');
+  if(allUnits.includes(cu))usel.value=cu;
+  const isel=document.getElementById('filterInjury');
+  const ci=isel.value;
+  const is=[...new Set(allData.map(d=>d.injuryLevel).filter(Boolean))];
+  isel.innerHTML='<option value="ALL">ALL Injuries</option>'+is.map(i=>`<option>${i}</option>`).join('');
+  if(is.includes(ci))isel.value=ci;
+
+  // Unit filter pill buttons
+  const btns=document.getElementById('unitBtns');
+  if(btns){
+    btns.innerHTML=['ALL',...allUnits].map(u=>`
+      <button class="unit-btn${fUnit===u?' active':''}" onclick="setUnitFilter('${u}')">${u}</button>
+    `).join('');
+  }
+}
+
+function setUnitFilter(u){
+  fUnit=u;
+  // Sync the header dropdown too
+  const usel=document.getElementById('filterUnit');
+  if(usel) usel.value=u;
+  rebuildFilters(); // re-render button states
+  const activeTab=document.querySelector('.tab-pane.active');
+  const id=activeTab?activeTab.id.replace('tab-',''):'overview';
+  if(id==='plato') renderPlato();
+  else if(id==='correlation') renderCorrelation();
+  else renderAll();
+}
+function applyFilters(){
+  fMonth=document.getElementById('filterMonth').value;
+  fUnit=document.getElementById('filterUnit').value;
+  fInj=document.getElementById('filterInjury').value;
+  // sync pill buttons
+  document.querySelectorAll('.unit-btn').forEach(b=>{
+    b.classList.toggle('active', b.textContent.trim()===fUnit);
+  });
+  const activeTab=document.querySelector('.tab-pane.active');
+  const id=activeTab?activeTab.id.replace('tab-',''):'overview';
+  if(id==='plato') renderPlato();
+  else if(id==='correlation') renderCorrelation();
+  else renderAll();
+}
+function getF(){return allData.filter(d=>(fMonth==="ALL"||getMonthKey(d)===fMonth)&&(fUnit==="ALL"||d.unit===fUnit)&&(fInj==="ALL"||d.injuryLevel===fInj));}
+function getPlatoF(){
+  return platoData.filter(d=>{
+    if(fUnit!=="ALL"&&d.unit!==fUnit) return false;
+    if(fMonth!=="ALL"){
+      // match month key against PLATO month (YYYY-MM)
+      const sample=allData.find(r=>getMonthKey(r)===fMonth);
+      if(sample&&d.month){
+        const sampleYM=sample._d?sample._d.toISOString().slice(0,7):'';
+        if(sampleYM&&d.month!==sampleYM) return false;
+      }
+    }
+    return true;
+  });
+}
+
+// ── Chart helpers ─────────────────────────────────────────────────────
+function dc(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+function bar(id,labels,data,bg){
+  dc(id);const ctx=document.getElementById(id);if(!ctx)return;
+  CH[id]=new Chart(ctx,{type:'bar',data:{labels,datasets:[{data,backgroundColor:bg||C.teal,borderRadius:4,borderSkipped:false}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{grid:{color:'#E0E6EF'},ticks:{font:{size:11}}},y:{grid:{color:'#E0E6EF'},ticks:{font:{size:11},stepSize:1}}},responsive:true,maintainAspectRatio:false}});
+}
+function doughnut(id,labels,data,colors){
+  dc(id);const ctx=document.getElementById(id);if(!ctx)return;
+  CH[id]=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors||PALC,borderWidth:2,borderColor:'#fff'}]},
+    options:{plugins:{legend:{position:'bottom',labels:{font:{size:10},padding:8}}},responsive:true,maintainAspectRatio:false,cutout:'55%'}});
+}
+function line(id,labels,data){
+  dc(id);const ctx=document.getElementById(id);if(!ctx)return;
+  CH[id]=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:C.teal,backgroundColor:C.teal+'22',borderWidth:2.5,pointRadius:4,pointBackgroundColor:C.teal,fill:true,tension:.35}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{grid:{color:'#E0E6EF'},ticks:{font:{size:11}}},y:{grid:{color:'#E0E6EF'},ticks:{font:{size:11},stepSize:1}}},responsive:true,maintainAspectRatio:false}});
+}
+
+// ── Render ────────────────────────────────────────────────────────────
+function renderAll(){
+  const f=getF();
+  renderKPIs(f);
+  renderOverview(f);
+  renderTrends(f);
+  renderIncidents(f);
+}
+
+function renderKPIs(f){
+  const n=f.length;
+  const wi=f.filter(d=>['Minor','Moderate','Major'].includes(d.injuryLevel)).length;
+  const ir=n?Math.round(wi/n*100):0;
+  const hd=f.filter(d=>d.huddleCompleted?.toString().toLowerCase().includes('yes')).length;
+  const hr=n?Math.round(hd/n*100):0;
+  const am=n?Math.round(f.reduce((s,d)=>s+(parseFloat(d.morseScore)||0),0)/n):0;
+  document.getElementById('kpiRow').innerHTML=[
+    ['Total Falls',n,'Filtered period',C.navy],
+    ['Injury Rate',ir+'%',wi+' with injury',ir>30?C.red:C.gold],
+    ['Huddle Compliance',hr+'%',hd+'/'+n+' completed',hr===100?C.green:hr>=80?C.teal:C.orange],
+    ['Avg Morse Score',am,'Pre-fall score',am>=60?C.red:C.teal]
+  ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c}">${v}</div><div class="kpi-sub">${s}</div></div>`).join('');
+}
+
+function renderOverview(f){
+  const uMap={},iMap={},bk={'00-06':0,'06-12':0,'12-18':0,'18-24':0};
+  f.forEach(d=>{
+    const u=d.unit||'Unknown';uMap[u]=(uMap[u]||0)+1;
+    const i=d.injuryLevel||'Unknown';iMap[i]=(iMap[i]||0)+1;
+    const h=parseInt((d.eventTime||'').split(':')[0])||0;
+    if(h<6)bk['00-06']++;else if(h<12)bk['06-12']++;else if(h<18)bk['12-18']++;else bk['18-24']++;
+  });
+  bar('cUnit',Object.keys(uMap),Object.values(uMap),C.teal);
+  const il=Object.keys(iMap);
+  doughnut('cInjury',il,Object.values(iMap),il.map(l=>INJC[l]||C.muted));
+  bar('cTime',Object.keys(bk),Object.values(bk),C.gold);
+
+  const cMap={};f.forEach(d=>{const k=d.causeOfFall||'Unknown';cMap[k]=(cMap[k]||0)+1;});
+  const causes=Object.entries(cMap).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  document.getElementById('causeList').innerHTML=causes.map(([nm,v],i)=>`
+    <div class="cause-row"><div class="cause-dot" style="background:${PALC[i%PALC.length]}"></div>
+    <div class="cause-lbl">${nm}</div><div class="cause-cnt">${v}</div></div>`).join('');
+}
+
+function renderTrends(f){
+  const mMap={};
+  f.forEach(d=>{if(!d._d)return;const k=d._d.toLocaleDateString('en-US',{month:'short',year:'2-digit'});mMap[k]=(mMap[k]||0)+1;});
+  line('cTrend',Object.keys(mMap),Object.values(mMap));
+
+  const n=f.length;
+  const hd=f.filter(d=>d.huddleCompleted?.toString().toLowerCase().includes('yes')).length;
+  const hr=n?Math.round(hd/n*100):0;
+  doughnut('cHuddle',['Completed','Pending'],[hd,n-hd],[C.green,'#E0E6EF']);
+  document.getElementById('huddleLbl').innerHTML=`<span style="color:${hr>=90?C.green:C.orange}">${hr}% Completion</span>`;
+
+  const lo=f.filter(d=>(parseFloat(d.morseScore)||0)<25).length;
+  const mo=f.filter(d=>{const s=parseFloat(d.morseScore)||0;return s>=25&&s<45;}).length;
+  const hi=f.filter(d=>(parseFloat(d.morseScore)||0)>=45).length;
+  document.getElementById('morseList').innerHTML=[['Low Risk (<25)',lo,C.green],['Moderate (25–44)',mo,C.gold],['High Risk (45+)',hi,C.red]]
+    .map(([l,v,c])=>`<div class="morse-row"><div class="morse-lbl"><span>${l}</span><span style="font-weight:700;color:${c}">${v}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${n?v/n*100:0}%;background:${c}"></div></div></div>`).join('');
+}
+
+// ── Local summary generator ──────────────────────────────────────────
+function generateSummary(inc, idx) {
+  const ini  = inc.patientInitials || 'Patient';
+  const sex  = inc.sex || '';
+  const age  = inc.age || '?';
+  const unit = inc.unit || '?';
+  const date = inc.eventDate || '?';
+  const time = inc.eventTime ? ` at ${inc.eventTime}` : '';
+  const inj  = inc.injuryLevel || 'no documented injury';
+  const cause= inc.causeOfFall || 'undocumented cause';
+  const act  = inc.activityAtFall || 'unknown activity';
+  const asst = (inc.assisted||'').toLowerCase();
+  const risk = inc.fallRiskLevel || '?';
+  const morse= inc.morseScore ? `Morse score ${inc.morseScore}` : '';
+  const jh   = inc.jhHlmScore  ? `, JH-HLM ${inc.jhHlmScore}` : '';
+  const rl   = (inc.rlEntered||'').toLowerCase().includes('yes') ? 'RL event entered.' : 'RL event NOT entered.';
+  const rn   = inc.primaryRN  ? `Primary RN: ${inc.primaryRN}.` : '';
+  const uap  = inc.primaryUAP ? `Primary UAP: ${inc.primaryUAP}.` : '';
+
+  // Post-fall protocol compliance
+  const checks = [
+    ['Post-fall vitals',   inc.postFallVitals],
+    ['Pain assessment',    inc.painAssessment],
+    ['Neuro assessment',   inc.neuroAssessment],
+    ['Skin assessment',    inc.skinAssessment],
+    ['Fall log flowsheet', inc.fallLogFlowsheet],
+  ];
+  const done   = checks.filter(([,v])=> v && String(v).toLowerCase().includes('complet') || v === 'Yes' || v === true);
+  const missed = checks.filter(([,v])=>!v || (!String(v).toLowerCase().includes('complet') && v !== 'Yes' && v !== true));
+  const protocolLine = missed.length === 0
+    ? 'All post-fall protocol elements were completed.'
+    : missed.length === checks.length
+      ? 'Post-fall protocol elements were not completed.'
+      : `Post-fall protocol partially completed; ${missed.map(([k])=>k).join(', ')} not documented.`;
+
+  // Huddle
+  const huddleDone = (inc.huddleCompleted||'').toLowerCase().includes('yes') || inc.huddleCompleted === true;
+  const days = inc.daysToHuddle != null && inc.daysToHuddle !== '' ? inc.daysToHuddle : null;
+  const huddleLine = huddleDone
+    ? `Post-fall huddle completed${days !== null ? ` within ${days} day${days==1?'':'s'}` : ''}.`
+    : 'Post-fall huddle not yet completed.';
+
+  // Recommendations / notes
+  const recLine = inc.recommendations
+    ? `Recommended action: ${inc.recommendations.trim().replace(/\.$/,'')}.`
+    : inc.pertinentNotes
+      ? `Notes: ${inc.pertinentNotes.trim().replace(/\.$/,'')}.`
+      : '';
+
+  // Event description snippet (first 120 chars)
+  const descLine = inc.eventDescription && String(inc.eventDescription).length > 10
+    ? `Event: ${String(inc.eventDescription).trim().slice(0,160).replace(/\s+/g,' ')}${inc.eventDescription.length>160?'…':''}`
+    : '';
+
+  const parts = [
+    `On ${date}${time}, ${ini} (${sex ? sex+', ' : ''}age ${age}) on Unit ${unit} sustained a${inj.toLowerCase().startsWith('a')||inj.toLowerCase().startsWith('u')?'n':''} ${inj.toLowerCase()} fall while ${act.toLowerCase()}${asst.includes('un')||asst.includes('no')?', unassisted':asst.includes('yes')||asst.includes('asst')?', assisted':''}.`,
+    descLine,
+    `Patient was classified as ${risk} fall risk (${morse}${jh}). ${rl} ${rn} ${uap}`.trim().replace(/\s+/g,' '),
+    protocolLine,
+    huddleLine,
+    recLine,
+  ].filter(Boolean);
+
+  return parts.join(' ');
+}
+
+function toggleSummary(idx, inc){
+  const wrap=document.getElementById('sumwrap-'+idx);
+  const btn=document.getElementById('sumbtn-'+idx);
+  if(!wrap)return;
+  const open=wrap.style.display==='none'||wrap.style.display==='';
+  wrap.style.display=open?'block':'none';
+  btn.textContent=open?'▲ Hide Summary':'✦ Summary';
+}
+
+// store refs to incident data for toggle callbacks
+const incidentRefs={};
+
+function renderIncidents(f){
+  document.getElementById('incTabBtn').textContent=`📋 Incidents (${f.length})`;
+  document.getElementById('incTitle').textContent=`Incident Summary — ${f.length} Event${f.length!==1?'s':''}`;
+  // store refs
+  f.forEach((inc,i)=>{incidentRefs[i]=inc;});
+  document.getElementById('incSlides').innerHTML=f.length===0
+    ?`<div style="text-align:center;padding:32px;color:#5E6E8C">No incidents match current filters.</div>`
+    :f.map(slideHtml).join('');
+  // auto-generate all summaries
+  f.forEach((inc,i)=>autoLoadSummary(i,inc));
+}
+
+function autoLoadSummary(idx, inc){
+  const wrap=document.getElementById('sumwrap-'+idx);
+  const box=document.getElementById('sum-'+idx);
+  const btn=document.getElementById('sumbtn-'+idx);
+  if(!wrap||!box)return;
+  wrap.style.display='block';
+  if(btn)btn.textContent='▲ Hide Summary';
+  try{
+    const txt=generateSummary(inc,idx);
+    box.innerHTML=`<p style="font-size:13px;line-height:1.65;color:#1B2A4A;margin:0">${txt}</p>`;
+  }catch(e){
+    box.innerHTML=`<span style="color:#C0392B;font-size:12px">⚠ ${e.message}</span>`;
+  }
+}
+
+function slideHtml(inc,i){
+  const ic=INJC[inc.injuryLevel]||C.muted;
+  const cf=['postFallVitals','painAssessment','neuroAssessment','skinAssessment','postFallAssessment'];
+  const done=cf.filter(f=>inc[f]?.toString().toLowerCase().includes('complet')).length;
+  const pct=Math.round(done/cf.length*100);
+  const pc=pct===100?C.green:pct>=60?C.gold:C.red;
+  const flds=[
+    ['Initials',inc.patientInitials||'—'],['Sex',inc.sex||'—'],['Age',inc.age||'—'],
+    ['Unit',inc.unit||'—'],['Date',inc.eventDate||'—'],['Time',inc.eventTime||'—'],
+    ['Injury',inc.injuryLevel||'—'],['Risk Level',inc.fallRiskLevel||'—'],
+    ['Morse Score',inc.morseScore||'—'],['Cause',inc.causeOfFall||'—'],
+    ['Activity',inc.activityAtFall||'—'],['Assisted?',inc.assisted||'—'],
+    ['JH-HLM',inc.jhHlmScore||'—'],['Primary RN',inc.primaryRN||'—'],
+    ['Primary UAP',inc.primaryUAP||'—'],['RL Entered?',inc.rlEntered||'—'],
+    ['Huddle Done?',inc.huddleCompleted||'—'],['Days to Huddle',inc.daysToHuddle??'—'],
+    ['Post Vitals',inc.postFallVitals||'—'],['Pain Assess.',inc.painAssessment||'—'],
+    ['Neuro Assess.',inc.neuroAssessment||'—'],['Skin Assess.',inc.skinAssessment||'—'],
+  ];
+  return`<div class="slide">
+    <div class="slide-hdr">
+      <div class="slide-num" style="background:${ic}">${i+1}</div>
+      <div class="slide-hdr-text">
+        <div class="slide-title">${inc.facility||'AOMC'} · Unit ${inc.unit||'—'} · ${inc.eventDate||'—'}</div>
+        <div class="slide-sub">${inc.patientInitials||'—'} · ${inc.sex||'—'} · Age ${inc.age||'—'} · ${inc.causeOfFall||'Unknown'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <button id="sumbtn-${i}" onclick="toggleSummary(${i},incidentRefs[${i}])"
+          style="background:#0E7C7B;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">✦ AI Summary</button>
+        <div class="slide-badge" style="background:${ic}22;border:1px solid ${ic}66;color:${ic}">${inc.injuryLevel||'Unknown'}</div>
+      </div>
+    </div>
+    <!-- AI Summary panel -->
+    <div id="sumwrap-${i}" style="display:none;background:#EEF6FF;border-bottom:1px solid #C8DDEF;padding:12px 16px">
+      <div style="font-size:9px;color:#253660;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">AI Clinical Summary</div>
+      <div id="sum-${i}"></div>
+    </div>
+    <div class="slide-body">
+      <div class="field-grid">${flds.map(([k,v])=>`<div class="field"><div class="fl">${k}</div><div class="fv">${v}</div></div>`).join('')}</div>
+      <div>
+        <div style="font-size:9px;color:#5E6E8C;font-weight:700;text-transform:uppercase;margin-bottom:5px">Post-Fall Assessment Compliance</div>
+        <div class="bar-track" style="height:10px;margin-bottom:4px"><div class="bar-fill" style="width:${pct}%;background:${pc}"></div></div>
+        <div style="font-size:12px;font-weight:700;color:${pc};margin-bottom:12px">${pct}% — ${done}/${cf.length} Complete</div>
+        ${inc.recommendations?`<div class="rec-box"><div class="rec-title">Recommendations</div><div class="rec-text">${inc.recommendations}</div></div>`:''}
+        ${inc.pertinentNotes?`<div class="rec-box" style="background:#FFFBF0;border-color:#E2C46A"><div class="rec-title">Pertinent Notes</div><div class="rec-text">${inc.pertinentNotes}</div></div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Upload ────────────────────────────────────────────────────────────
+function rowKey(d){return[d.facility||'',d.unit||'',String(d.eventDate||''),String(d.eventTime||'')].join('|').toLowerCase().trim();}
+function handleFileInput(inp){if(inp.files[0])processFile(inp.files[0]);}
+function processFile(file){
+  const r=new FileReader();
+  r.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const raw=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!raw.length){showMsg('⚠️ No data rows found.','warn');return;}
+      const existingKeys=new Set(allData.map(rowKey));
+      const mapped=raw.map(mapRow);
+      const newRows=mapped.filter(d=>!existingKeys.has(rowKey(d)));
+      const dupes=mapped.length-newRows.length;
+      if(!newRows.length){showMsg(`⚠️ No new records — ${dupes} duplicate${dupes!==1?'s':''} skipped.`,'warn');return;}
+      allData=[...allData,...newRows];
+      rebuildFilters();renderAll();
+      const msg=`✅ Added ${newRows.length} new record${newRows.length!==1?'s':''} from "${file.name}"` + (dupes?` · ${dupes} duplicate${dupes!==1?'s':''} skipped`:'');
+      showMsg(msg,'ok');
+      saveToSupabase(newRows);
+    }catch(e){showMsg('❌ Parse error: '+e.message,'err');}
+  };
+  r.readAsBinaryString(file);
+}
+function showMsg(txt,type){
+  const el=document.getElementById('uploadMsg');
+  el.className='msg';
+  el.style.cssText=`display:block;background:${type==='ok'?'#EAF8EF':type==='warn'?'#FFFBF0':'#FEF0F0'};border:1px solid ${type==='ok'?C.green:type==='warn'?C.gold:C.red}`;
+  el.textContent=txt;
+}
+function clearData(){allData=[];rebuildFilters();renderAll();showMsg('All data cleared.','warn');}
+function restoreDemo(){allData=[...DEMO];rebuildFilters();renderAll();showMsg('Demo data restored.','ok');}
+
+// Drag-drop
+const dz=document.getElementById('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files[0])processFile(e.dataTransfer.files[0]);});
+
+// Upload tab tag list
+document.getElementById('tagList').innerHTML=["Facility","Unit","Patient Name","Visit Number","MR Number","Event Date","Event Time","Injury Level","RL Entered","Post Falls Assessment in EMR","Post Fall Assessment Time","Send for Analysis","Fall Log Flowsheet Completed in EMR","Post Fall VS","Pain Assessment Post Fall","Neuro Assessment Post Fall","Skin Assessment Post Fall","Nurse Note about Event","Provider Note Regarding the Event","Morse Score Pre- Fall","Fall Risk Level","Assisted?","Activity at Time of Fall","JH-HLM Score","Cause of Fall","Post Fall Huddle Report Done","Days to Receive Post Fall Huddle Report","Primary RN","Primary UAP","Recommendations Based on ACA Post Fall Huddle"].map(t=>`<span class="tag">${t}</span>`).join(' ');
+
+// ── PLATO Data ────────────────────────────────────────────────────────
+let platoData = []; // [{unit, staffName, month, totalRounds, completedRounds, compliancePct, date}]
+
+function platoDrop(e){
+  e.preventDefault();
+  const dz=document.getElementById('platoDrop');
+  if(dz){dz.style.borderColor='#C0CDD8';dz.style.background='#fff';}
+  if(e.dataTransfer.files[0]) processPlatoFile(e.dataTransfer.files[0]);
+}
+function handlePlatoUpload(inp){
+  if(inp.files[0]) processPlatoFile(inp.files[0]);
+  inp.value=''; // reset so same file can be re-selected
+}
+function processPlatoFile(file){
+  const msg=document.getElementById('platoMsg');
+  const preview=document.getElementById('platoPreview');
+  msg.innerHTML='<span style="color:#C9A84C">⏳ Reading file…</span>';
+  const r = new FileReader();
+  r.onload = e => {
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const raw=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!raw.length){msg.innerHTML='<span style="color:#C0392B">⚠ No data rows found in file.</span>';return;}
+
+      // Show detected columns for debugging
+      const cols=Object.keys(raw[0]).filter(k=>k&&typeof k==='string');
+      if(preview) preview.innerHTML='<b>Detected columns:</b> '+cols.join(', ')+'<br><b>Total rows:</b> '+raw.length;
+
+      const mapped = raw.map(mapPlatoRow).filter(r=>r.unit||r.staffName||r.ca);
+      if(!mapped.length){
+        msg.innerHTML='<span style="color:#C0392B">⚠ Could not map any rows. Columns detected: '+cols.slice(0,6).join(', ')+'</span>';
+        return;
+      }
+
+      // UPSERT logic: match by unit+date+staffName+ca
+      // New rows = no match; Updated rows = match but different compliance values; Unchanged = exact match
+      let added=0, updated=0, unchanged=0;
+      const newData=[...platoData];
+      const toSaveNew=[], toSaveUpdated=[];
+
+      mapped.forEach(incoming=>{
+        const k=platoKey(incoming);
+        const existIdx=newData.findIndex(d=>platoKey(d)===k);
+        if(existIdx===-1){
+          // Brand new row
+          newData.push(incoming);
+          toSaveNew.push(incoming);
+          added++;
+        } else {
+          const exist=newData[existIdx];
+          // Check if any compliance field changed
+          const changed=['fallCompliance','hapiCompliance','cautiCompliance','clabsiCompliance','rn2','ca']
+            .some(f=>incoming[f]!==exist[f]);
+          if(changed){
+            newData[existIdx]={...exist,...incoming}; // merge — incoming wins
+            toSaveUpdated.push(newData[existIdx]);
+            updated++;
+          } else {
+            unchanged++;
+          }
+        }
+      });
+
+      platoData=newData;
+      if(toSaveNew.length||toSaveUpdated.length) savePlatoToSupabase([...toSaveNew,...toSaveUpdated]);
+
+      const parts=[];
+      if(added)    parts.push(`✅ ${added} new row${added!==1?'s':''} added`);
+      if(updated)  parts.push(`🔄 ${updated} row${updated!==1?'s':''} updated`);
+      if(unchanged)parts.push(`⏭ ${unchanged} unchanged`);
+      const color=added||updated?'#27AE60':'#C9A84C';
+      msg.innerHTML=`<span style="color:${color}">${parts.join(' · ')}</span>`;
+      renderPlato();
+      renderCorrelation();
+    }catch(e){
+      msg.innerHTML='<span style="color:#C0392B">❌ '+e.message+'</span>';
+      console.error('PLATO parse error:',e);
+    }
+  };
+  r.readAsBinaryString(file);
+}
+
+function platoKey(r){
+  return [r.unit||'',r.date||'',r.time||'',r.staffName||''].join('|').toLowerCase();
+}
+
+// PLATO row mapper — matches actual PLATO Smartsheet export structure
+// Columns: Primary (row ID/MRN - ignored), Unit (AH), Nurse Home Unit, Today's Date,
+//          HAPI Compliance, Fall Compliance, CAUTI Compliance, CLABSI Compliance,
+//          Nurse assigned to patient, Second Nurse Assigned to Patient,
+//          CA/PCT/EMA Assigned to Patient, CA/PCT/EMA Home Unit
+function mapPlatoRow(raw){
+  const o={};
+  for(const [k,v] of Object.entries(raw)){
+    if(!k||typeof k!=='string') continue;
+    o[k.trim()] = (v==null||v==='') ? '' : String(v).trim();
+  }
+
+  // Unit — prefer "Unit (AH)" over "Nurse Home Unit"
+  const unit    = (o['Unit (AH)']||o['Nurse Home Unit']||o['Unit']||o['unit']||'').toString().trim();
+
+  // Date — "Today's Date" is the rounding date
+  const date    = (o["Today's Date"]||o["Today s Date"]||o['Date']||o['Rounding Date']||'').toString().trim();
+
+  // Staff — "Nurse assigned to patient" is primary RN (NOT the "Primary" column which is row ID)
+  const rn1     = (o['Nurse assigned to patient']||o['Nurse Assigned to Patient']||o['Primary RN']||o['RN']||'').toString().trim();
+  const rn2     = (o['Second Nurse Assigned to Patient']||o['Second Nurse']||'').toString().trim();
+  const ca      = (o['CA / PCT / EMA Assigned to Patient']||o['CA/PCT/EMA Assigned to Patient']||o['CA']||o['PCT']||'').toString().trim();
+  const caUnit  = (o['CA / PCT / EMA Home Unit']||o['CA Home Unit']||'').toString().trim();
+  const nurseHomeUnit = (o['Nurse Home Unit']||'').toString().trim();
+
+  // Compliance — "Compliant" | "Not Compliant" | ""
+  const hapiRaw   = (o['HAPI Compliance']||'').toString().trim();
+  const fallRaw   = (o['Fall Compliance']||'').toString().trim();
+  const cautiRaw  = (o['CAUTI Compliance']||'').toString().trim();
+  const clabsiRaw = (o['CLABSI Compliance']||'').toString().trim();
+
+  function toScore(v){ return v==='Compliant'?1:v==='Not Compliant'?0:null; }
+  const scores = [hapiRaw,fallRaw,cautiRaw,clabsiRaw].map(toScore).filter(s=>s!==null);
+  const overallPct     = scores.length>0 ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*100) : null;
+  const fallCompliant  = toScore(fallRaw);
+
+  // Month key for grouping: parse MM/DD/YY or YYYY-MM-DD
+  let month='';
+  if(date){
+    const d=new Date(date);
+    if(!isNaN(d)) month=d.toISOString().slice(0,7); // YYYY-MM
+  }
+
+  return {
+    unit, nurseHomeUnit, date, month,
+    staffName: rn1,         // primary nurse assigned to patient
+    rn2, ca, caUnit,
+    hapiCompliance:   hapiRaw,
+    fallCompliance:   fallRaw,
+    cautiCompliance:  cautiRaw,
+    clabsiCompliance: clabsiRaw,
+    fallCompliant,
+    overallPct,
+    compliancePct:    overallPct,
+    totalRounds:      scores.length,
+    completedRounds:  scores.filter(s=>s===1).length,
+  };
+}
+
+// Save PLATO to Supabase plato_incidents table (reuse existing table)
+async function savePlatoToSupabase(rows){
+  if(!sbClient||!rows.length) return;
+  try{
+    const payload = rows.map(r=>({
+      unit: r.unit||null,
+      month: r.month||r.date||null,
+      staff_name: r.staffName||null,
+      total_rounds: r.totalRounds||null,
+      completed_rounds: r.completedRounds||null,
+      compliance_pct: r.compliancePct||null,
+    }));
+    await sbClient.from('plato_staff').upsert(payload, {ignoreDuplicates:true});
+  }catch(e){ console.warn('PLATO save:', e.message); }
+}
+
+// Load PLATO from Supabase on startup
+async function loadPlatoFromSupabase(){
+  if(!sbClient) return;
+  try{
+    const {data,error} = await sbClient.from('plato_staff').select('*');
+    if(error||!data) return;
+    platoData = data.map(r=>({
+      unit: r.unit||'', staffName: r.staff_name||'', month: r.month||'',
+      date: r.month||'', totalRounds: r.total_rounds||0,
+      completedRounds: r.completed_rounds||0, compliancePct: r.compliance_pct,
+    }));
+    renderPlato();
+    renderCorrelation();
+  }catch(e){ console.warn('PLATO load:', e.message); }
+}
+
+// ── Render PLATO tab ──────────────────────────────────────────────────
+function renderPlato(){
+  const pd=getPlatoF();
+  if(!pd.length){
+    document.getElementById('platoKPIs').innerHTML='<div style="grid-column:1/-1;text-align:center;color:#5E6E8C;padding:20px">No PLATO data loaded. Upload an Excel export above.</div>';
+    document.getElementById('platoStaffTable').innerHTML='';
+    return;
+  }
+
+  const totalRounds  = pd.length;
+  const units        = [...new Set(platoData.map(d=>d.unit).filter(Boolean))];
+  const allStaff     = [...new Set([...platoData.map(d=>d.staffName),...platoData.map(d=>d.rn2),...platoData.map(d=>d.ca)].filter(Boolean))];
+
+  // Fall compliance specifically
+  const fallRows     = pd.filter(d=>d.fallCompliant!==null);
+  const fallCompPct  = fallRows.length ? Math.round(fallRows.filter(d=>d.fallCompliant===1).length/fallRows.length*100) : 0;
+  const notCompliant = fallRows.filter(d=>d.fallCompliant===0).length;
+
+  // Overall across all 4 metrics
+  const withPct      = pd.filter(d=>d.compliancePct!==null);
+  const avgComp      = withPct.length ? Math.round(withPct.reduce((s,d)=>s+d.compliancePct,0)/withPct.length) : 0;
+
+  document.getElementById('platoKPIs').innerHTML = [
+    ['Total Rounds', totalRounds.toLocaleString(), 'Rounding events', C.navy],
+    ['Fall Compliance', fallCompPct+'%', `${notCompliant} not compliant`, fallCompPct>=90?C.green:fallCompPct>=80?C.teal:C.red],
+    ['Overall Compliance', avgComp+'%', 'HAPI+Fall+CAUTI+CLABSI avg', avgComp>=90?C.green:avgComp>=80?C.teal:C.orange],
+    ['Units / Staff', units.length+' / '+allStaff.length, 'tracked', C.navy],
+  ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c};font-size:22px">${v}</div><div class="kpi-sub">${s}</div></div>`).join('');
+
+  // By-unit FALL compliance chart
+  const unitMap={};
+  pd.forEach(d=>{
+    if(!d.unit) return;
+    if(!unitMap[d.unit]) unitMap[d.unit]={fall_yes:0,fall_no:0,total:0};
+    if(d.fallCompliant===1) unitMap[d.unit].fall_yes++;
+    else if(d.fallCompliant===0) unitMap[d.unit].fall_no++;
+    unitMap[d.unit].total++;
+  });
+  const unitLabels=Object.keys(unitMap).sort();
+  const unitVals=unitLabels.map(u=>{
+    const r=unitMap[u]; const t=r.fall_yes+r.fall_no;
+    return t>0?Math.round(r.fall_yes/t*100):null;
+  }).filter(v=>v!==null);
+  const unitLabelsFilt=unitLabels.filter((_,i)=>{
+    const r=unitMap[unitLabels[i]]; return (r.fall_yes+r.fall_no)>0;
+  });
+
+  dc('platoUnitChart');
+  const uc=document.getElementById('platoUnitChart');
+  if(uc) CH['platoUnitChart']=new Chart(uc,{type:'bar',
+    data:{labels:unitLabelsFilt,datasets:[{label:'Fall Compliance %',data:unitVals,backgroundColor:unitVals.map(v=>v>=90?C.green+'CC':v>=80?C.teal+'CC':C.orange+'CC'),borderRadius:4}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw}% fall compliant`}}},
+      scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',font:{size:11}}},x:{ticks:{font:{size:10}}}},responsive:true,maintainAspectRatio:false}});
+
+  // Trend by month (fall compliance)
+  const monthMap={};
+  pd.forEach(d=>{
+    const m=d.month||'Unknown'; if(!m) return;
+    if(!monthMap[m]) monthMap[m]={yes:0,no:0};
+    if(d.fallCompliant===1) monthMap[m].yes++;
+    else if(d.fallCompliant===0) monthMap[m].no++;
+  });
+  const mLabels=Object.keys(monthMap).sort();
+  const mVals=mLabels.map(m=>{const r=monthMap[m];const t=r.yes+r.no;return t>0?Math.round(r.yes/t*100):null;});
+  dc('platoTrendChart');
+  const tc=document.getElementById('platoTrendChart');
+  if(tc) CH['platoTrendChart']=new Chart(tc,{type:'line',
+    data:{labels:mLabels,datasets:[{label:'Fall Compliance %',data:mVals,borderColor:C.teal,backgroundColor:C.teal+'22',borderWidth:2.5,pointRadius:4,fill:true,tension:.3}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',font:{size:11}}},x:{ticks:{font:{size:11}}}},responsive:true,maintainAspectRatio:false}});
+
+  // Staff table — aggregate each nurse's fall compliance rate
+  const staffMap={};
+  function addStaff(name,unit,row){
+    if(!name) return;
+    if(!staffMap[name]) staffMap[name]={unit,yes:0,no:0,total:0,hapiNo:0,cautiNo:0,clabsiNo:0};
+    staffMap[name].total++;
+    if(row.fallCompliant===1) staffMap[name].yes++;
+    else if(row.fallCompliant===0) staffMap[name].no++;
+    if(row.hapiCompliance==='Not Compliant') staffMap[name].hapiNo++;
+    if(row.cautiCompliance==='Not Compliant') staffMap[name].cautiNo++;
+    if(row.clabsiCompliance==='Not Compliant') staffMap[name].clabsiNo++;
+  }
+  pd.forEach(d=>{
+    addStaff(d.staffName, d.unit, d);
+    addStaff(d.rn2, d.unit, d);
+    addStaff(d.ca, d.caUnit||d.unit, d);
+  });
+
+  const staffRows=Object.entries(staffMap).map(([name,s])=>{
+    const t=s.yes+s.no;
+    return {name, unit:s.unit, fallPct:t>0?Math.round(s.yes/t*100):null, fallNo:s.no, hapiNo:s.hapiNo, cautiNo:s.cautiNo, clabsiNo:s.clabsiNo, total:s.total};
+  }).sort((a,b)=>(a.fallPct??101)-(b.fallPct??101));
+
+  document.getElementById('platoStaffTable').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#F0F3F8">
+        <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Staff</th>
+        <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Unit</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall Compliance</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Not Compliant</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">HAPI NC</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">CAUTI NC</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Rounds</th>
+      </tr></thead>
+      <tbody>${staffRows.map((s,i)=>{
+        const c=s.fallPct===null?C.muted:s.fallPct>=90?C.green:s.fallPct>=80?C.teal:s.fallPct>=70?C.orange:C.red;
+        const lbl=s.fallPct===null?'No data':s.fallPct>=90?'✅ Excellent':s.fallPct>=80?'👍 Good':s.fallPct>=70?'⚠ Monitor':'🔴 At Risk';
+        return `<tr style="background:${i%2?'#F7F9FC':'#fff'}">
+          <td style="padding:8px;font-weight:600">${s.name}</td>
+          <td style="padding:8px;color:#5E6E8C;font-size:11px">${s.unit||'—'}</td>
+          <td style="padding:8px;text-align:center"><div style="display:inline-block;background:${c}22;border:1px solid ${c}55;border-radius:4px;padding:2px 10px;color:${c};font-weight:700">${s.fallPct!==null?s.fallPct+'%':'—'}</div></td>
+          <td style="padding:8px;text-align:center;color:${s.fallNo>0?C.red:C.muted};font-weight:${s.fallNo>0?700:400}">${s.fallNo||0}</td>
+          <td style="padding:8px;text-align:center;color:${s.hapiNo>0?C.orange:C.muted}">${s.hapiNo||0}</td>
+          <td style="padding:8px;text-align:center;color:${s.cautiNo>0?C.orange:C.muted}">${s.cautiNo||0}</td>
+          <td style="padding:8px;text-align:center;color:#5E6E8C">${s.total}</td>
+        </tr><tr style="background:${i%2?'#F7F9FC':'#fff'}"><td colspan="7" style="padding:0 8px 6px 8px;font-size:11px;color:#5E6E8C">${lbl}</td></tr>`;
+      }).join('')}</tbody>
+    </table>`;
+}
+
+// ── Render Correlation tab ────────────────────────────────────────────
+function renderCorrelation(){
+  const pd=getPlatoF();
+  const corrEmpty = document.getElementById('corrEmpty');
+  if(!pd.length){
+    if(corrEmpty) corrEmpty.style.display='block';
+    document.getElementById('corrKPIs').innerHTML='';
+    document.getElementById('corrStaffList').innerHTML='';
+    document.getElementById('corrTable').innerHTML='';
+    return;
+  }
+  if(corrEmpty) corrEmpty.style.display='none';
+
+  // Build unit compliance map from PLATO
+  const unitComp={};
+  pd.forEach(d=>{
+    if(!d.unit||d.compliancePct===null||isNaN(d.compliancePct)) return;
+    if(!unitComp[d.unit]){unitComp[d.unit]={sum:0,cnt:0};}
+    unitComp[d.unit].sum+=d.compliancePct;
+    unitComp[d.unit].cnt++;
+  });
+
+  // Build fall count by unit from fall data
+  const fallData = typeof getF === 'function' ? getF() : allData;
+  const unitFalls={};
+  fallData.forEach(d=>{
+    if(!d.unit) return;
+    unitFalls[d.unit]=(unitFalls[d.unit]||0)+1;
+  });
+
+  // All units that appear in either dataset
+  const allUnits=[...new Set([...Object.keys(unitComp),...Object.keys(unitFalls)])];
+
+  // Scatter data
+  const scatterPts=allUnits.map(u=>({
+    unit:u,
+    comp: unitComp[u]?Math.round(unitComp[u].sum/unitComp[u].cnt):null,
+    falls: unitFalls[u]||0,
+  })).filter(p=>p.comp!==null);
+
+  // Pearson correlation
+  if(scatterPts.length>=2){
+    const n=scatterPts.length;
+    const xs=scatterPts.map(p=>p.comp), ys=scatterPts.map(p=>p.falls);
+    const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
+    const num=xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0);
+    const den=Math.sqrt(xs.reduce((s,x)=>s+(x-mx)**2,0)*ys.reduce((s,y)=>s+(y-my)**2,0));
+    const r=den?+(num/den).toFixed(3):0;
+
+    // KPIs
+    const rLabel=Math.abs(r)<0.2?'Negligible':Math.abs(r)<0.4?'Weak':Math.abs(r)<0.6?'Moderate':'Strong';
+    const rDir=r<0?'Inverse (↑ compliance = ↓ falls)':r>0?'Positive (↑ compliance = ↑ falls)':'No direction';
+    document.getElementById('corrKPIs').innerHTML=[
+      ['Pearson r',r,'Compliance ↔ Falls correlation', Math.abs(r)>=0.4?C.red:C.teal],
+      ['Strength',rLabel,rDir, Math.abs(r)>=0.4?C.orange:C.green],
+      ['Units Compared',scatterPts.length,'With both PLATO & fall data', C.navy],
+    ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c};font-size:22px">${v}</div><div class="kpi-sub">${s}</div></div>`).join('');
+  }
+
+  // Scatter chart
+  dc('corrScatterChart');
+  const sc=document.getElementById('corrScatterChart');
+  if(sc) CH['corrScatterChart']=new Chart(sc,{
+    type:'scatter',
+    data:{datasets:[{
+      label:'Units',
+      data:scatterPts.map(p=>({x:p.comp,y:p.falls,unit:p.unit})),
+      backgroundColor:scatterPts.map(p=>p.comp>=90?C.green+'CC':p.comp>=80?C.teal+'CC':C.orange+'CC'),
+      pointRadius:8, pointHoverRadius:10,
+    }]},
+    options:{
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.raw.unit}: ${ctx.raw.x}% compliance, ${ctx.raw.y} falls`}}
+      },
+      scales:{
+        x:{title:{display:true,text:'Avg PLATO Compliance %',font:{size:11}},min:0,max:100},
+        y:{title:{display:true,text:'Fall Count',font:{size:11}},min:0,ticks:{stepSize:1}}
+      },
+      responsive:true,maintainAspectRatio:false
+    }
+  });
+
+  // Staff with low compliance AND involved in falls
+  const staffComp={};
+  function addToStaffComp(name,unit,d){
+    if(!name) return;
+    if(!staffComp[name]){staffComp[name]={sum:0,cnt:0,unit,fallYes:0,fallNo:0};}
+    if(d.compliancePct!==null&&!isNaN(d.compliancePct)){staffComp[name].sum+=d.compliancePct;staffComp[name].cnt++;}
+    if(d.fallCompliant===1) staffComp[name].fallYes++;
+    else if(d.fallCompliant===0) staffComp[name].fallNo++;
+  }
+  pd.forEach(d=>{
+    addToStaffComp(d.staffName,d.unit,d);
+    addToStaffComp(d.rn2,d.unit,d);
+    addToStaffComp(d.ca,d.caUnit||d.unit,d);
+  });
+  // Attach fallNo to staffComp for crossRef
+  Object.values(staffComp).forEach(s=>s.fallNo=s.fallNo||0);
+
+  // Staff names mentioned as primary RN/UAP in fall events
+  const staffFalls={};
+  fallData.forEach(d=>{
+    if(d.primaryRN){const k=d.primaryRN.trim().toLowerCase();staffFalls[k]=(staffFalls[k]||0)+1;}
+    if(d.primaryUAP){const k=d.primaryUAP.trim().toLowerCase();staffFalls[k]=(staffFalls[k]||0)+1;}
+  });
+
+  // Cross-reference: staff with PLATO data AND fall involvement (fuzzy name match)
+  const crossRef=Object.entries(staffComp).map(([name,s])=>{
+    const nameLow=name.toLowerCase();
+    let fallsInvolved=staffFalls[nameLow]||0;
+    if(!fallsInvolved){
+      const parts=nameLow.split(/[\s,]+/).filter(Boolean);
+      for(const [fk,fv] of Object.entries(staffFalls)){
+        if(parts.some(p=>p.length>2&&fk.includes(p))){fallsInvolved+=fv;break;}
+      }
+    }
+    const totalObs = s.cnt||0; // number of PLATO observations for this staff
+    return {name, unit:s.unit, avgComp:s.cnt?Math.round(s.sum/s.cnt):null, fallNotComp:s.fallNo||0, fallsInvolved, totalObs};
+  }).filter(s=>s.fallsInvolved>0||(s.avgComp!==null&&s.avgComp<80)).sort((a,b)=>(a.avgComp??101)-(b.avgComp??101));
+
+  // Priority list: >5 PLATO observations AND ≥1 fall event
+  const priorityList = crossRef.filter(s => s.totalObs > 5 && s.fallsInvolved >= 1)
+    .sort((a,b) => b.fallsInvolved - a.fallsInvolved || a.avgComp - b.avgComp);
+
+  const priEl = document.getElementById('priorityStaffList');
+  if(priEl){
+    if(!priorityList.length){
+      priEl.innerHTML='<div style="padding:16px;color:#5E6E8C;font-size:12px;text-align:center">No staff meet criteria (5+ observations AND ≥1 fall event).<br>This is a good sign — or names may not yet match between datasets.</div>';
+    } else {
+      priEl.innerHTML = priorityList.map((s,i)=>{
+        const c=s.avgComp===null?C.muted:s.avgComp>=90?C.green:s.avgComp>=80?C.teal:s.avgComp>=70?C.orange:C.red;
+        const risk=s.avgComp<70?'🔴 High Risk':s.avgComp<80?'🟠 Elevated':'🟡 Monitor';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #F0F3F8;background:${i%2?'#F7F9FC':'#fff'}">
+          <div style="background:${C.red};color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${i+1}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:13px">${s.name}</div>
+            <div style="font-size:10px;color:#5E6E8C">${s.unit||'—'} · ${risk}</div>
+          </div>
+          <div style="text-align:center;min-width:52px">
+            <div style="font-size:9px;color:#5E6E8C;text-transform:uppercase;margin-bottom:2px">Fall Comp.</div>
+            <div style="font-weight:800;color:${c};font-size:14px">${s.avgComp!==null?s.avgComp+'%':'—'}</div>
+          </div>
+          <div style="text-align:center;min-width:52px">
+            <div style="font-size:9px;color:#5E6E8C;text-transform:uppercase;margin-bottom:2px">Obs.</div>
+            <div style="font-weight:800;color:${C.navy};font-size:14px">${s.totalObs}</div>
+          </div>
+          <div style="text-align:center;min-width:52px">
+            <div style="font-size:9px;color:#5E6E8C;text-transform:uppercase;margin-bottom:2px">NC Rounds</div>
+            <div style="font-weight:800;color:${s.fallNotComp>0?C.orange:C.muted};font-size:14px">${s.fallNotComp||0}</div>
+          </div>
+          <div style="text-align:center;min-width:52px">
+            <div style="font-size:9px;color:#5E6E8C;text-transform:uppercase;margin-bottom:2px">Fall Events</div>
+            <div style="font-weight:800;color:${C.red};font-size:14px">${s.fallsInvolved}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Full cross-reference table — all staff with PLATO data
+  const fullEl = document.getElementById('corrStaffList');
+  if(fullEl){
+    const allCrossRef=[...crossRef].sort((a,b)=>b.totalObs-a.totalObs);
+    if(!allCrossRef.length){
+      fullEl.innerHTML='<div style="padding:16px;color:#5E6E8C;font-size:12px;text-align:center">Upload PLATO data to see staff cross-reference.</div>';
+    } else {
+      fullEl.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#F0F3F8;position:sticky;top:0">
+          <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Staff</th>
+          <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Unit</th>
+          <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Observations</th>
+          <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall Compliance</th>
+          <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">NC Rounds</th>
+          <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall Events</th>
+          <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Priority?</th>
+        </tr></thead>
+        <tbody>${allCrossRef.map((s,i)=>{
+          const c=s.avgComp===null?C.muted:s.avgComp>=90?C.green:s.avgComp>=80?C.teal:s.avgComp>=70?C.orange:C.red;
+          const isPriority=s.totalObs>5&&s.fallsInvolved>=1;
+          return `<tr style="background:${isPriority?'#FFF3F3':i%2?'#F7F9FC':'#fff'}">
+            <td style="padding:7px 8px;font-weight:${isPriority?700:400}">${s.name}</td>
+            <td style="padding:7px 8px;color:#5E6E8C;font-size:11px">${s.unit||'—'}</td>
+            <td style="padding:7px 8px;text-align:center;font-weight:700;color:${s.totalObs>5?C.navy:C.muted}">${s.totalObs}</td>
+            <td style="padding:7px 8px;text-align:center"><span style="background:${c}22;border:1px solid ${c}55;border-radius:4px;padding:1px 8px;color:${c};font-weight:700">${s.avgComp!==null?s.avgComp+'%':'—'}</span></td>
+            <td style="padding:7px 8px;text-align:center;color:${s.fallNotComp>0?C.orange:C.muted};font-weight:${s.fallNotComp>0?700:400}">${s.fallNotComp||0}</td>
+            <td style="padding:7px 8px;text-align:center;color:${s.fallsInvolved>0?C.red:C.muted};font-weight:${s.fallsInvolved>0?700:400}">${s.fallsInvolved}</td>
+            <td style="padding:7px 8px;text-align:center">${isPriority?'🔴 Yes':'—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    }
+  }
+
+  // Unit summary table
+  document.getElementById('corrTable').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#F0F3F8">
+        <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Unit</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Avg PLATO %</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall Count</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Falls per 10% below 100%</th>
+        <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Risk Signal</th>
+      </tr></thead>
+      <tbody>${allUnits.map((u,i)=>{
+        const comp=unitComp[u]?Math.round(unitComp[u].sum/unitComp[u].cnt):null;
+        const falls=unitFalls[u]||0;
+        const gap=comp!==null?(100-comp):null;
+        const ratio=gap&&gap>0?(falls/(gap/10)).toFixed(1):null;
+        const risk=comp===null?'No PLATO data':comp>=90&&falls===0?'✅ Low Risk':comp>=80&&falls<=1?'🟡 Monitor':comp<80&&falls>1?'🔴 High Risk':'🟠 Elevated';
+        const rc=risk.includes('Low')?C.green:risk.includes('Monitor')?C.gold:risk.includes('High')?C.red:C.orange;
+        return `<tr style="background:${i%2?'#F7F9FC':'#fff'}">
+          <td style="padding:8px;font-weight:700">${u}</td>
+          <td style="padding:8px;text-align:center"><span style="background:${comp!==null?(comp>=90?C.green:comp>=80?C.teal:C.orange):C.muted}22;border:1px solid ${comp!==null?(comp>=90?C.green:comp>=80?C.teal:C.orange):C.muted}55;border-radius:4px;padding:2px 8px;font-weight:700;color:${comp!==null?(comp>=90?C.green:comp>=80?C.teal:C.orange):C.muted}">${comp!==null?comp+'%':'—'}</span></td>
+          <td style="padding:8px;text-align:center;font-weight:700;color:${falls>2?C.red:falls>0?C.orange:C.green}">${falls}</td>
+          <td style="padding:8px;text-align:center;color:#5E6E8C">${ratio||'—'}</td>
+          <td style="padding:8px;font-weight:700;color:${rc}">${risk}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+}
+
+// PLATO tab rendering handled inside showTab directly
+
+// Init
+rebuildFilters();
+renderAll();
+initSupabase();
+</script>
+</body>
+</html>
