@@ -133,7 +133,18 @@ function buildPayload(columns, rows) {
     out.push(record);
   }
 
-  return { records: out, skippedNoKey };
+  // De-dupe on the conflict key — a single INSERT ... ON CONFLICT statement
+  // can't touch the same target row twice, so if two Smartsheet rows share
+  // the same facility+unit+event_date+event_time, keep only the last one.
+  const byKey = new Map();
+  for (const record of out) {
+    const key = CONFLICT_COLS.map((k) => record[k]).join('|');
+    byKey.set(key, record);
+  }
+  const deduped = [...byKey.values()];
+  const duplicateCount = out.length - deduped.length;
+
+  return { records: deduped, skippedNoKey, duplicateCount };
 }
 
 async function upsertToSupabase(records) {
@@ -165,8 +176,8 @@ async function main() {
   const { columns, rows } = await fetchAllRows();
   console.log(`Fetched ${rows.length} rows, ${columns.length} columns.`);
 
-  const { records, skippedNoKey } = buildPayload(columns, rows);
-  console.log(`Mapped ${records.length} rows (skipped ${skippedNoKey} missing facility/unit/date/time).`);
+  const { records, skippedNoKey, duplicateCount } = buildPayload(columns, rows);
+  console.log(`Mapped ${records.length} rows (skipped ${skippedNoKey} missing facility/unit/date/time, collapsed ${duplicateCount} duplicate keys).`);
 
   if (!records.length) {
     console.log('Nothing to sync.');
