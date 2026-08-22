@@ -1069,33 +1069,59 @@ function mapPlatoRow(raw){
   };
 }
 
-// Save PLATO to Supabase plato_incidents table (reuse existing table)
+// Save PLATO to Supabase plato_observations table.
+// Manual-upload rows have no Smartsheet row id, so this is a plain insert
+// (not an upsert) — matches prior behavior where manual uploads just appended.
+// The automated Smartsheet report sync writes to this same table separately,
+// upserting on smartsheet_row_id so it never duplicates on re-run.
 async function savePlatoToSupabase(rows){
   if(!sbClient||!rows.length) return;
   try{
     const payload = rows.map(r=>({
       unit: r.unit||null,
-      month: r.month||r.date||null,
+      nurse_home_unit: r.nurseHomeUnit||null,
+      observation_date: r.date||null,
+      month: r.month||null,
       staff_name: r.staffName||null,
+      second_nurse: r.rn2||null,
+      second_nurse_unit: r.rn2Unit||null,
+      ca_name: r.ca||null,
+      ca_unit: r.caUnit||null,
+      hapi_compliance: r.hapiCompliance||null,
+      fall_compliance: r.fallCompliance||null,
+      cauti_compliance: r.cautiCompliance||null,
+      clabsi_compliance: r.clabsiCompliance||null,
       total_rounds: r.totalRounds||null,
       completed_rounds: r.completedRounds||null,
       compliance_pct: r.compliancePct||null,
     }));
-    await sbClient.from('plato_staff').upsert(payload, {ignoreDuplicates:true});
+    await sbClient.from('plato_observations').insert(payload);
   }catch(e){ console.warn('PLATO save:', e.message); }
 }
 
-// Load PLATO from Supabase on startup
+// Load PLATO from Supabase on startup — combines manual uploads and the
+// automated Smartsheet report sync, since both write to plato_observations.
 async function loadPlatoFromSupabase(){
   if(!sbClient) return;
   try{
-    const {data,error} = await sbClient.from('plato_staff').select('*');
+    const {data,error} = await sbClient.from('plato_observations').select('*');
     if(error||!data) return;
-    platoData = data.map(r=>({
-      unit: r.unit||'', staffName: r.staff_name||'', month: r.month||'',
-      date: r.month||'', totalRounds: r.total_rounds||0,
-      completedRounds: r.completed_rounds||0, compliancePct: r.compliance_pct,
-    }));
+    platoData = data.map(r=>{
+      const scores=[r.hapi_compliance,r.fall_compliance,r.cauti_compliance,r.clabsi_compliance]
+        .map(v=>v==='Compliant'?1:v==='Not Compliant'?0:null).filter(s=>s!==null);
+      return {
+        unit: r.unit||'', nurseHomeUnit: r.nurse_home_unit||'',
+        date: r.observation_date||'', month: r.month||'',
+        staffName: r.staff_name||'', rn2: r.second_nurse||'', rn2Unit: r.second_nurse_unit||'',
+        ca: r.ca_name||'', caUnit: r.ca_unit||'',
+        hapiCompliance: r.hapi_compliance||'', fallCompliance: r.fall_compliance||'',
+        cautiCompliance: r.cauti_compliance||'', clabsiCompliance: r.clabsi_compliance||'',
+        fallCompliant: r.fall_compliance==='Compliant'?1:r.fall_compliance==='Not Compliant'?0:null,
+        overallPct: r.compliance_pct, compliancePct: r.compliance_pct,
+        totalRounds: r.total_rounds||scores.length||0,
+        completedRounds: r.completed_rounds||scores.filter(s=>s===1).length||0,
+      };
+    });
     renderPlato();
     renderCorrelation();
   }catch(e){ console.warn('PLATO load:', e.message); }

@@ -58,6 +58,20 @@ const FIELD_MAP = {
   'Primary RN': { col: 'primary_rn', type: 'text' },
   'Primary UAP': { col: 'primary_uap', type: 'text' },
   'Recommendations based on ACA of Post Fall Huddle': { col: 'recommendations', type: 'text' },
+  'RL Event Entered - Date': { col: 'rl_entered_date', type: 'date' },
+  'RL Event Entered - Time': { col: 'rl_entered_time', type: 'text' },
+  'Post Fall Assessment in EMR?': { col: 'post_fall_assessment', type: 'bool' },
+  'Post Fall Assessment Time': { col: 'post_fall_assessment_time', type: 'text' },
+  'Intoxication/Impairment Contributing Factor': { col: 'intoxication', type: 'bool' },
+  'Recommended Device Utilized?': { col: 'recommended_device', type: 'text' },
+  'Post Fall Assessment Documentation Date': { col: 'post_fall_assessment_date', type: 'date' },
+  'Post Fall Assessment Documentation Time': { col: 'post_fall_assessment_time2', type: 'text' },
+  'Date Post Fall Huddle Report Received': { col: 'huddle_report_date', type: 'date' },
+  'Post Fall Huddle Report - Completion Time': { col: 'huddle_completion_time', type: 'text' },
+  'Post Fall Huddle Report Completed within 15 minute': { col: 'huddle_within_15', type: 'text' },
+  "Pt Commitment Completed & at Bedside": { col: 'pt_commitment', type: 'text' },
+  'Post Fall Huddle Report - Manager F/U Date': { col: 'huddle_manager_fu_date', type: 'date' },
+  'Post Fall Huddle Manager F/U within 48-72 hrs': { col: 'huddle_manager_fu_48h', type: 'text' },
 };
 
 // Natural key fall_events upserts on (must match the Supabase unique
