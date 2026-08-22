@@ -352,8 +352,19 @@ async function loadFromSupabase(){
   if(!sbClient) return;
   setSbIndicator('loading');
   try{
-    const {data, error} = await sbClient.from(TABLE).select('*').order('event_date', {ascending:true});
-    if(error) throw error;
+    // Supabase caps a plain select at 1000 rows — page through with .range()
+    // so this keeps working once fall_events grows past that.
+    const pageSize = 1000;
+    let from = 0;
+    let data = [];
+    while(true){
+      const {data: page, error} = await sbClient.from(TABLE).select('*').order('event_date', {ascending:true}).range(from, from+pageSize-1);
+      if(error) throw error;
+      if(!page || !page.length) break;
+      data = data.concat(page);
+      if(page.length < pageSize) break;
+      from += pageSize;
+    }
     if(data && data.length){
       const incoming = data.map(dbToInc);
       const existingKeys = new Set(allData.map(rowKey));
@@ -1104,9 +1115,21 @@ async function savePlatoToSupabase(rows){
 async function loadPlatoFromSupabase(){
   if(!sbClient) return;
   try{
-    const {data,error} = await sbClient.from('plato_observations').select('*');
-    if(error||!data) return;
-    platoData = data.map(r=>{
+    // Supabase caps a plain select at 1000 rows — page through with .range()
+    // to pull every observation regardless of dataset size.
+    const pageSize = 1000;
+    let from = 0;
+    let all = [];
+    while(true){
+      const {data,error} = await sbClient.from('plato_observations').select('*').range(from, from+pageSize-1);
+      if(error){ console.warn('PLATO load:', error.message); break; }
+      if(!data || !data.length) break;
+      all = all.concat(data);
+      if(data.length < pageSize) break;
+      from += pageSize;
+    }
+    if(!all.length) return;
+    platoData = all.map(r=>{
       const scores=[r.hapi_compliance,r.fall_compliance,r.cauti_compliance,r.clabsi_compliance]
         .map(v=>v==='Compliant'?1:v==='Not Compliant'?0:null).filter(s=>s!==null);
       return {
