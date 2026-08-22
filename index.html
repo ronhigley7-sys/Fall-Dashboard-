@@ -169,45 +169,11 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
   <!-- UPLOAD -->
   <!-- PLATO TAB -->
   <div id="tab-plato" class="tab-pane">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;align-items:start">
-
-      <!-- Upload zone -->
-      <div class="card" style="margin-bottom:0">
-        <div class="card-title">Upload PLATO Data</div>
-        <div id="platoDrop" ondrop="platoDrop(event)" onDragOver="event.preventDefault();this.style.borderColor='#0E7C7B';this.style.background='#EAF8F7'" onDragLeave="this.style.borderColor='#C0CDD8';this.style.background='#fff'"
-          style="border:2px dashed #C0CDD8;border-radius:8px;padding:28px 16px;text-align:center;transition:.2s;cursor:pointer" onclick="document.getElementById('platoFileInput').click()">
-          <div style="font-size:30px;margin-bottom:8px">📋</div>
-          <div style="font-weight:700;color:#1B2A4A;margin-bottom:4px">Drag & drop PLATO file here</div>
-          <div style="font-size:12px;color:#5E6E8C;margin-bottom:14px">Supports .xlsx, .xls and .csv</div>
-          <div style="background:#0E7C7B;color:#fff;display:inline-block;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px">Browse File</div>
-          <input type="file" id="platoFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handlePlatoUpload(this)">
-        </div>
-        <div id="platoMsg" style="font-size:12px;margin-top:10px;min-height:18px"></div>
-        <div style="margin-top:12px;padding:10px;background:#F7F9FC;border-radius:6px;border:1px solid #E0E6EF">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#5E6E8C;margin-bottom:6px">Detected Columns (from your file)</div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Unit (AH)</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Nurse Home Unit</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Today's Date</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">HAPI Compliance</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Fall Compliance</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CAUTI Compliance</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CLABSI Compliance</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Nurse assigned to patient</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">Second Nurse Assigned to Patient</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CA / PCT / EMA Assigned to Patient</span>
-            <span style="background:#E8EEF6;border-radius:3px;padding:2px 6px;font-size:10px;color:#5E6E8C;font-family:monospace">CA / PCT / EMA Home Unit</span>
-          </div>
-        </div>
-        <div id="platoPreview" style="margin-top:10px;font-size:11px;color:#5E6E8C"></div>
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button onclick="platoData=[];renderPlato();renderCorrelation();document.getElementById('platoMsg').textContent='Cleared.'" style="padding:6px 12px;border-radius:5px;border:1px solid #C0392B;background:#fff;color:#C0392B;font-weight:700;font-size:11px;cursor:pointer">Clear PLATO Data</button>
-        </div>
-      </div>
+    <div style="margin-bottom:16px">
 
       <!-- Quick stats -->
       <div>
-        <div id="platoKPIs" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+        <div id="platoKPIs" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px"></div>
       </div>
     </div>
 
@@ -237,7 +203,7 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
       <div class="card-title">All Staff — PLATO Compliance Cross-Reference</div>
       <div id="corrStaffList" style="max-height:320px;overflow-y:auto"></div>
     </div>
-    <div id="corrEmpty" style="text-align:center;padding:40px;color:#5E6E8C;display:none">Upload PLATO data on the PLATO tab to see correlation analysis.</div>
+    <div id="corrEmpty" style="text-align:center;padding:40px;color:#5E6E8C;display:none">PLATO data fills in automatically from Smartsheet — check back shortly if this is empty.</div>
   </div>
 
   <div id="tab-upload" class="tab-pane" style="max-width:580px">
@@ -1154,7 +1120,7 @@ async function loadPlatoFromSupabase(){
 function renderPlato(){
   const pd=getPlatoF();
   if(!pd.length){
-    document.getElementById('platoKPIs').innerHTML='<div style="grid-column:1/-1;text-align:center;color:#5E6E8C;padding:20px">No PLATO data loaded. Upload an Excel export above.</div>';
+    document.getElementById('platoKPIs').innerHTML='<div style="grid-column:1/-1;text-align:center;color:#5E6E8C;padding:20px">No PLATO data loaded yet — this fills in automatically from Smartsheet.</div>';
     document.getElementById('platoStaffTable').innerHTML='';
     return;
   }
@@ -1435,7 +1401,7 @@ function renderCorrelation(){
   if(fullEl){
     const allCrossRef=[...crossRef].sort((a,b)=>b.totalObs-a.totalObs);
     if(!allCrossRef.length){
-      fullEl.innerHTML='<div style="padding:16px;color:#5E6E8C;font-size:12px;text-align:center">Upload PLATO data to see staff cross-reference.</div>';
+      fullEl.innerHTML='<div style="padding:16px;color:#5E6E8C;font-size:12px;text-align:center">PLATO data fills in automatically — check back shortly if this is empty.</div>';
     } else {
       fullEl.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#F0F3F8;position:sticky;top:0">
