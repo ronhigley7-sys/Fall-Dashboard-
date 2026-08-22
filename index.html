@@ -122,6 +122,7 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
   <button class="tab-btn" onclick="showTab('trends',this)">📈 Trends</button>
   <button class="tab-btn" id="incTabBtn" onclick="showTab('incidents',this)">📋 Incidents</button>
   <button class="tab-btn" onclick="showTab('plato',this)">📋 PLATO</button>
+  <button class="tab-btn" onclick="showTab('unitreview',this)">🏥 Unit Review</button>
 <button class="tab-btn" onclick="showTab('correlation',this)">🔗 Correlation</button>
 <button class="tab-btn" onclick="showTab('upload',this)">⬆️ Upload</button>
 </div>
@@ -184,6 +185,18 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
     <div class="card">
       <div class="card-title">Staff PLATO Compliance</div>
       <div id="platoStaffTable"></div>
+    </div>
+  </div>
+
+  <!-- UNIT REVIEW TAB -->
+  <div id="tab-unitreview" class="tab-pane">
+    <div class="card">
+      <div class="card-title">Falls by Unit — Year to Date &amp; Last 14 Days</div>
+      <div id="unitReviewSummary"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">Falls in Last 14 Days — RN / CA &amp; PLATO Compliance</div>
+      <div id="unitReviewDetail"></div>
     </div>
   </div>
 
@@ -537,6 +550,7 @@ function showTab(id,btn){
   btn.classList.add('active');
   if(id==='plato'){renderPlato();}
   else if(id==='correlation'){renderCorrelation();}
+  else if(id==='unitreview'){renderUnitReview();}
   else{renderAll();}
 }
 
@@ -1237,6 +1251,75 @@ function renderPlato(){
 }
 
 // ── Render Correlation tab ────────────────────────────────────────────
+// ── Render Unit Review tab ──────────────────────────────────────────
+function normName(s){ return (s||'').toString().trim().toLowerCase(); }
+
+function staffPlatoAvg(name, field){
+  const n = normName(name);
+  if(!n) return null;
+  const rows = platoData.filter(d=>normName(d[field])===n && d.compliancePct!=null);
+  if(!rows.length) return null;
+  return Math.round(rows.reduce((s,d)=>s+d.compliancePct,0)/rows.length);
+}
+
+function renderUnitReview(){
+  const now = new Date();
+  const ytdStart = new Date(now.getFullYear(),0,1);
+  const twoWeeksAgo = new Date(now.getTime() - 14*24*60*60*1000);
+
+  const units = [...new Set(allData.map(d=>d.unit).filter(Boolean))].sort();
+
+  // Summary table: YTD + last 14 days count per unit
+  const rows2wk = allData.filter(d=>d._d && d._d>=twoWeeksAgo && d._d<=now);
+  const summaryRows = units.map(u=>{
+    const ytd = allData.filter(d=>d.unit===u && d._d && d._d>=ytdStart && d._d<=now).length;
+    const last2wk = rows2wk.filter(d=>d.unit===u).length;
+    return {unit:u, ytd, last2wk};
+  }).sort((a,b)=>b.last2wk-a.last2wk || b.ytd-a.ytd);
+
+  document.getElementById('unitReviewSummary').innerHTML = summaryRows.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:2px solid #E0E6EF;text-align:left">
+        <th style="padding:8px">Unit</th><th style="padding:8px">Falls YTD</th><th style="padding:8px">Falls (Last 14 Days)</th>
+      </tr></thead>
+      <tbody>
+        ${summaryRows.map(r=>`
+          <tr style="border-bottom:1px solid #EEF1F6">
+            <td style="padding:8px;font-weight:700;color:#1B2A4A">${r.unit}</td>
+            <td style="padding:8px">${r.ytd}</td>
+            <td style="padding:8px${r.last2wk>0?';color:#C0392B;font-weight:700':''}">${r.last2wk}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>` : '<div style="text-align:center;color:#5E6E8C;padding:20px">No fall data loaded.</div>';
+
+  // Detail table: every fall in the last 14 days, with RN/CA + their PLATO compliance
+  const detailRows = rows2wk.slice().sort((a,b)=>(b._d-a._d));
+  document.getElementById('unitReviewDetail').innerHTML = detailRows.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:2px solid #E0E6EF;text-align:left">
+        <th style="padding:8px">Date</th><th style="padding:8px">Unit</th>
+        <th style="padding:8px">Primary RN</th><th style="padding:8px">RN PLATO Compliance</th>
+        <th style="padding:8px">Primary UAP (CA)</th><th style="padding:8px">CA PLATO Compliance</th>
+      </tr></thead>
+      <tbody>
+        ${detailRows.map(d=>{
+          const rnPct = staffPlatoAvg(d.primaryRN,'staffName');
+          const caPct = staffPlatoAvg(d.primaryUAP,'ca');
+          const fmtPct = p => p==null ? '<span style="color:#9AA6B8">No PLATO data</span>' : `${p}%`;
+          return `
+          <tr style="border-bottom:1px solid #EEF1F6">
+            <td style="padding:8px">${d.eventDate||''}</td>
+            <td style="padding:8px">${d.unit||''}</td>
+            <td style="padding:8px">${d.primaryRN||'—'}</td>
+            <td style="padding:8px">${fmtPct(rnPct)}</td>
+            <td style="padding:8px">${d.primaryUAP||'—'}</td>
+            <td style="padding:8px">${fmtPct(caPct)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>` : '<div style="text-align:center;color:#5E6E8C;padding:20px">No falls in the last 14 days.</div>';
+}
+
 function renderCorrelation(){
   const pd=getPlatoF();
   const corrEmpty = document.getElementById('corrEmpty');
