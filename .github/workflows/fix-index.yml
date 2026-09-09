@@ -1,0 +1,63 @@
+name: Fix dashboard index
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Promote dashboard to index and apply startup safeguards
+        shell: python
+        run: |
+          from pathlib import Path
+          src = Path('inedx.html')
+          if not src.exists():
+              print('inedx.html already removed; nothing to do')
+              raise SystemExit(0)
+          s = src.read_text(encoding='utf-8')
+          old = """function dc(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+function bar(id,labels,data,bg){
+  dc(id);const ctx=document.getElementById(id);if(!ctx)return;
+"""
+          new = """function dc(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+function chartReady(id){
+  if(typeof Chart !== 'undefined') return true;
+  const canvas=document.getElementById(id);
+  if(canvas && canvas.parentElement){canvas.style.display='none'; if(!canvas.parentElement.querySelector('.chart-load-error')) canvas.parentElement.insertAdjacentHTML('beforeend','<div class=\"chart-load-error\" style=\"padding:24px;text-align:center;color:#C0392B;font-size:12px\">Charts could not load. Check internet/CDN access.</div>');}
+  return false;
+}
+function bar(id,labels,data,bg){
+  dc(id);const ctx=document.getElementById(id);if(!ctx||!chartReady(id))return;
+"""
+          s = s.replace(old, new, 1)
+          s = s.replace("dc(id);const ctx=document.getElementById(id);if(!ctx)return;\n  CH[id]=new Chart(ctx,{type:'doughnut'", "dc(id);const ctx=document.getElementById(id);if(!ctx||!chartReady(id))return;\n  CH[id]=new Chart(ctx,{type:'doughnut'", 1)
+          s = s.replace("dc(id);const ctx=document.getElementById(id);if(!ctx)return;\n  CH[id]=new Chart(ctx,{type:'line'", "dc(id);const ctx=document.getElementById(id);if(!ctx||!chartReady(id))return;\n  CH[id]=new Chart(ctx,{type:'line'", 1)
+          s = s.replace("""// Init
+rebuildFilters();
+renderAll();
+initSupabase();
+""", """// Init — wait for the DOM and keep the dashboard usable even if a CDN is unavailable
+function startDashboard(){
+  try{ rebuildFilters(); renderAll(); }catch(e){ showRawError('Dashboard startup: '+(e.stack||e.message)); }
+  try{ initSupabase(); }catch(e){ showRawError('Database startup: '+(e.stack||e.message)); }
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', startDashboard);
+else startDashboard();
+""", 1)
+          Path('index.html').write_text(s, encoding='utf-8')
+          src.unlink()
+      - name: Commit corrected index
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Promote corrected fall dashboard to index.html"
+          git push
