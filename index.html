@@ -4,10 +4,25 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fall Event Reporting Tracker – AOMC</title>
-  <meta http-equiv="refresh" content="0; url=inedx.html" />
-  <script>window.location.replace('inedx.html');</script>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#F0F3F8}
+    #dashboard{border:0;width:100%;height:100%;display:block}
+  </style>
 </head>
 <body>
-  <p>Opening the Fall Event Reporting Tracker… <a href="inedx.html">Continue</a></p>
+  <iframe id="dashboard" src="inedx.html" title="Fall Event Reporting Tracker"></iframe>
+  <script>
+    const frame=document.getElementById('dashboard');
+    frame.addEventListener('load',()=>{
+      try{
+        const d=frame.contentDocument;
+        if(!d || d.querySelector('script[data-zoom-review]')) return;
+        const s=d.createElement('script');
+        s.src='zoom-review.js';
+        s.dataset.zoomReview='true';
+        d.body.appendChild(s);
+      }catch(e){console.error('Zoom Review loader:',e);}
+    });
+  </script>
 </body>
 </html>
