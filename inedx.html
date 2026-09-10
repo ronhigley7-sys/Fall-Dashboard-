@@ -90,12 +90,14 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
 /* ── Responsive ── */
 @media(max-width:680px){
   #kpiRow{grid-template-columns:1fr 1fr}
+  #biweeklyKPIs{grid-template-columns:1fr 1fr!important}
   .g2{grid-template-columns:1fr}
   .slide-body{grid-template-columns:1fr}
   .field-grid{grid-template-columns:1fr 1fr}
 }
 @media(max-width:420px){
   #kpiRow{grid-template-columns:1fr}
+  #biweeklyKPIs{grid-template-columns:1fr!important}
   .field-grid{grid-template-columns:1fr}
 }
 </style>
@@ -122,6 +124,7 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
   <button class="tab-btn" onclick="showTab('trends',this)">📈 Trends</button>
   <button class="tab-btn" id="incTabBtn" onclick="showTab('incidents',this)">📋 Incidents</button>
   <button class="tab-btn" onclick="showTab('plato',this)">📋 PLATO</button>
+  <button class="tab-btn" onclick="showTab('biweekly',this)">🗓 2-Week Review</button>
   <button class="tab-btn" onclick="showTab('unitreview',this)">🏥 Unit Review</button>
 <button class="tab-btn" onclick="showTab('correlation',this)">🔗 Correlation</button>
 <button class="tab-btn" onclick="showTab('upload',this)">⬆️ Upload</button>
@@ -186,6 +189,19 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
       <div class="card-title">Staff PLATO Compliance</div>
       <div id="platoStaffTable"></div>
     </div>
+  </div>
+
+  <!-- 2-WEEK REVIEW TAB -->
+  <div id="tab-biweekly" class="tab-pane">
+    <div class="card" style="border-top:4px solid #C9A84C">
+      <div class="card-title">Two-Week Fall Prevention Review</div>
+      <div style="font-size:13px;line-height:1.55;color:#1B2A4A;margin-bottom:12px">
+        Goal: identify action items, increase awareness, and eliminate falls. Use this view during fall review or Zoom huddle to discuss details, opportunities, interventions, PLATO gaps, resources, and staff follow-up.
+      </div>
+      <div id="biweeklyTabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+    <div id="biweeklySummary"></div>
+    <div id="biweeklyEvents"></div>
   </div>
 
   <!-- UNIT REVIEW TAB -->
@@ -376,7 +392,7 @@ async function loadFromSupabase(){
       if(newOnes.length){
         allData = [...allData, ...newOnes];
         rebuildFilters();
-        renderAll();
+        renderCurrentTab();
       }
     }
     setSbIndicator('connected');
@@ -565,7 +581,7 @@ const DEMO=[
   {facility:"AOMC",unit:"3C",patientInitials:"E.W.",sex:"F",age:89,eventDate:"2024-03-05",eventTime:"10:10",injuryLevel:"Minor",rlEntered:"Yes",fallRiskLevel:"High",morseScore:60,assisted:"No",causeOfFall:"Confusion/Altered MS",activityAtFall:"Attempting OOB",jhHlmScore:13,huddleCompleted:"Yes",daysToHuddle:1,primaryRN:"Adams, B.",primaryUAP:"Clark, D.",painAssessment:"Not Completed",neuroAssessment:"Completed",skinAssessment:"Completed",postFallVitals:"Completed",recommendations:"Sitter ordered; reorientation q1h",_d:new Date("2024-03-05")}
 ];
 
-let allData=[...DEMO],fUnit="ALL",fInj="ALL",fMonth="ALL";
+let allData=[...DEMO],fUnit="ALL",fInj="ALL",fMonth="ALL",activeBiweeklyKey=null;
 const CH={};
 
 // ── Unit normalization: 3B & 3C are combined into "3rd Floor" everywhere ──
@@ -594,8 +610,18 @@ function showTab(id,btn){
   btn.classList.add('active');
   if(id==='plato'){renderPlato();}
   else if(id==='correlation'){renderCorrelation();}
+  else if(id==='biweekly'){renderBiweeklyReview();}
   else if(id==='unitreview'){renderUnitReview();}
   else{renderAll();}
+}
+function renderCurrentTab(){
+  const activeTab=document.querySelector('.tab-pane.active');
+  const id=activeTab?activeTab.id.replace('tab-',''):'overview';
+  if(id==='plato') renderPlato();
+  else if(id==='correlation') renderCorrelation();
+  else if(id==='biweekly') renderBiweeklyReview();
+  else if(id==='unitreview') renderUnitReview();
+  else renderAll();
 }
 
 // ── Filters ──────────────────────────────────────────────────────────
@@ -656,6 +682,7 @@ function setUnitFilter(u){
   const id=activeTab?activeTab.id.replace('tab-',''):'overview';
   if(id==='plato') renderPlato();
   else if(id==='correlation') renderCorrelation();
+  else if(id==='biweekly') renderBiweeklyReview();
   else if(id==='unitreview') renderUnitReview();
   else renderAll();
 }
@@ -671,6 +698,7 @@ function applyFilters(){
   const id=activeTab?activeTab.id.replace('tab-',''):'overview';
   if(id==='plato') renderPlato();
   else if(id==='correlation') renderCorrelation();
+  else if(id==='biweekly') renderBiweeklyReview();
   else if(id==='unitreview') renderUnitReview();
   else renderAll();
 }
@@ -792,7 +820,7 @@ function generateSummary(inc, idx) {
   const inj  = inc.injuryLevel || 'no documented injury';
   const cause= inc.causeOfFall || 'undocumented cause';
   const act  = inc.activityAtFall || 'unknown activity';
-  const asst = (inc.assisted||'').toLowerCase();
+  const asst = (inc.assisted??'').toString().toLowerCase();
   const risk = inc.fallRiskLevel || '?';
   const morse= inc.morseScore ? `Morse score ${inc.morseScore}` : '';
   const jh   = inc.jhHlmScore  ? `, JH-HLM ${inc.jhHlmScore}` : '';
@@ -952,7 +980,7 @@ function processFile(file){
       const dupes=mapped.length-newRows.length;
       if(!newRows.length){showMsg(`⚠️ No new records — ${dupes} duplicate${dupes!==1?'s':''} skipped.`,'warn');return;}
       allData=[...allData,...newRows];
-      rebuildFilters();renderAll();
+      rebuildFilters();renderCurrentTab();
       const msg=`✅ Added ${newRows.length} new record${newRows.length!==1?'s':''} from "${file.name}"` + (dupes?` · ${dupes} duplicate${dupes!==1?'s':''} skipped`:'');
       showMsg(msg,'ok');
       saveToSupabase(newRows);
@@ -966,8 +994,8 @@ function showMsg(txt,type){
   el.style.cssText=`display:block;background:${type==='ok'?'#EAF8EF':type==='warn'?'#FFFBF0':'#FEF0F0'};border:1px solid ${type==='ok'?C.green:type==='warn'?C.gold:C.red}`;
   el.textContent=txt;
 }
-function clearData(){allData=[];rebuildFilters();renderAll();showMsg('All data cleared.','warn');}
-function restoreDemo(){allData=DEMO.map(d=>({...d, unit: normUnit(d.unit)})).filter(d=>isAllowedUnit(d.unit));rebuildFilters();renderAll();showMsg('Demo data restored.','ok');}
+function clearData(){allData=[];rebuildFilters();renderCurrentTab();showMsg('All data cleared.','warn');}
+function restoreDemo(){allData=DEMO.map(d=>({...d, unit: normUnit(d.unit)})).filter(d=>isAllowedUnit(d.unit));rebuildFilters();renderCurrentTab();showMsg('Demo data restored.','ok');}
 
 // Drag-drop
 const dz=document.getElementById('dropzone');
@@ -1191,6 +1219,8 @@ async function loadPlatoFromSupabase(){
     }).filter(d=>!d.unit||isAllowedUnit(d.unit));
     renderPlato();
     renderCorrelation();
+    const activeTab=document.querySelector('.tab-pane.active');
+    if(activeTab && activeTab.id==='tab-biweekly') renderBiweeklyReview();
   }catch(e){ console.warn('PLATO load:', e.message); }
 }
 
@@ -1370,6 +1400,284 @@ function renderThemesBlock(rows){
     ${chipRow('Fall Risk Level', riskLevels)}
     ${chipRow('Injury Level', injuries)}
   `;
+}
+
+// ── Two-week fall review: period tabs + prevention answers/action items ──
+function escHtml(v){
+  return String(v ?? '').replace(/[&<>"']/g, ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+}
+function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function ymd(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function shortDate(d){ return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function periodLabel(p){ return `${shortDate(p.start)} - ${shortDate(p.end)}, ${p.end.getFullYear()}`; }
+function biweeklyStart(d){
+  const day = startOfDay(d);
+  const yrStart = new Date(day.getFullYear(),0,1);
+  const idx = Math.floor((day-yrStart)/(14*24*60*60*1000));
+  return addDays(yrStart, idx*14);
+}
+function getBiweeklyPeriods(rows){
+  const map={};
+  rows.filter(d=>d._d).forEach(d=>{
+    const start = biweeklyStart(d._d);
+    const key = ymd(start);
+    if(!map[key]) map[key]={key,start,end:addDays(start,13),rows:[]};
+    map[key].rows.push(d);
+  });
+  return Object.values(map).sort((a,b)=>b.start-a.start);
+}
+function setBiweeklyPeriod(key){
+  activeBiweeklyKey=key;
+  renderBiweeklyReview();
+}
+function yesLike(v){
+  const s=(v??'').toString().trim().toLowerCase();
+  return v===true || ['yes','y','true','done','complete','completed','compliant'].includes(s) || s.includes('completed');
+}
+function missingPostFallItems(inc){
+  return [
+    ['Post-fall vitals', inc.postFallVitals],
+    ['Pain reassessment', inc.painAssessment],
+    ['Neuro assessment', inc.neuroAssessment],
+    ['Skin assessment', inc.skinAssessment],
+    ['Fall log flowsheet', inc.fallLogFlowsheet],
+  ].filter(([,v])=>!yesLike(v)).map(([label])=>label);
+}
+function platoStatusLine(inc){
+  const rnPct = staffPlatoAvg(inc.primaryRN,'staffName');
+  const caPct = staffPlatoAvg(inc.primaryUAP,'ca');
+  const fmt = (role,name,pct)=>{
+    if(!name) return `${role}: no assigned staff documented`;
+    if(pct==null) return `${role} ${name}: no PLATO data found`;
+    const rating = pct>=90 ? 'meets target' : pct>=80 ? 'monitor' : 'needs coaching';
+    return `${role} ${name}: ${pct}% (${rating})`;
+  };
+  return `${fmt('RN',inc.primaryRN,rnPct)}. ${fmt('CA',inc.primaryUAP,caPct)}.`;
+}
+function platoGap(inc){
+  const rnPct = staffPlatoAvg(inc.primaryRN,'staffName');
+  const caPct = staffPlatoAvg(inc.primaryUAP,'ca');
+  return rnPct==null || caPct==null || rnPct<90 || caPct<90;
+}
+function fallDetailLine(inc){
+  const parts=[
+    `${inc.eventDate||'No date'}${inc.eventTime?' at '+inc.eventTime:''}`,
+    inc.unit ? `Unit ${inc.unit}` : '',
+    inc.patientInitials ? `patient ${inc.patientInitials}` : 'patient initials not listed',
+    inc.injuryLevel ? `${inc.injuryLevel} injury level` : 'injury level not documented',
+    inc.activityAtFall ? `activity: ${inc.activityAtFall}` : '',
+    inc.causeOfFall ? `cause: ${inc.causeOfFall}` : '',
+    inc.assisted ? `assisted: ${inc.assisted}` : '',
+  ].filter(Boolean);
+  return parts.join(' | ');
+}
+function reviewSignals(inc){
+  const signals=[];
+  const risk=(inc.fallRiskLevel||'').toString().toLowerCase();
+  const morse=parseFloat(inc.morseScore)||0;
+  const cause=(inc.causeOfFall||'').toString().toLowerCase();
+  const activity=(inc.activityAtFall||'').toString().toLowerCase();
+  const assisted=(inc.assisted||'').toString().toLowerCase();
+  if(risk.includes('high') || morse>=45) signals.push('High-risk patient: verify the fall bundle matched the risk level before the event.');
+  if(assisted.includes('no') || assisted.includes('un')) signals.push('Unassisted fall: focus on call-light response, rounding reliability, toileting plan, and patient teach-back.');
+  if(cause.includes('toilet') || activity.includes('bath') || activity.includes('toilet') || activity.includes('commode')) signals.push('Toileting-related risk: schedule proactive toileting before handoff, bedtime, diuretics, and known urgency times.');
+  if(cause.includes('confusion') || cause.includes('altered') || activity.includes('attempting') || activity.includes('oob')) signals.push('Impulsivity/confusion risk: validate bed alarm response, room placement, reorientation, sitter/video monitoring need, and family education.');
+  if(cause.includes('med') || cause.includes('orthostatic')) signals.push('Medication/orthostatic risk: request medication timing review, orthostatic vitals, and provider/pharmacy follow-up.');
+  if(cause.includes('balance') || cause.includes('gait') || activity.includes('transfer') || activity.includes('ambulat')) signals.push('Mobility risk: confirm PT/OT plan, assist level signage, walker/gait belt access, and two-person assist when needed.');
+  if(cause.includes('equipment') || cause.includes('environment')) signals.push('Environment/equipment risk: check bed/chair alarm function, tubing/cord placement, clutter, lighting, footwear, and floor hazards.');
+  if(!yesLike(inc.huddleCompleted)) signals.push('Post-fall huddle is missing or not documented.');
+  const missed=missingPostFallItems(inc);
+  if(missed.length) signals.push(`Documentation gap: ${missed.join(', ')}.`);
+  if(platoGap(inc)) signals.push('PLATO opportunity: assigned RN/CA need targeted observation or missing PLATO data needs to be captured.');
+  return signals.length ? signals : ['No obvious gap from the loaded fields. Validate the bedside interventions and staff barriers during the review.'];
+}
+function whatWentWell(inc){
+  const good=[];
+  if(yesLike(inc.rlEntered)) good.push('RL/event entry documented');
+  if(yesLike(inc.huddleCompleted)) good.push('post-fall huddle documented');
+  if(!missingPostFallItems(inc).length) good.push('post-fall assessment elements complete');
+  if((inc.injuryLevel||'').toLowerCase()==='none') good.push('no injury documented');
+  if((inc.assisted??'').toString().toLowerCase().includes('yes')) good.push('staff assistance was present');
+  if(inc.recommendations) good.push('recommendations entered');
+  return good.length ? good.join('; ') : 'Limited positives documented. Use huddle to identify anything staff did well that is not captured in the export.';
+}
+function whatDidntGoWell(inc){
+  const gaps=[];
+  if(!yesLike(inc.huddleCompleted)) gaps.push('huddle missing/not documented');
+  const missed=missingPostFallItems(inc);
+  if(missed.length) gaps.push(`missing ${missed.join(', ')}`);
+  if((inc.assisted??'').toString().toLowerCase().includes('no')) gaps.push('fall was unassisted');
+  if(['Minor','Moderate','Major'].includes(inc.injuryLevel)) gaps.push(`${inc.injuryLevel.toLowerCase()} injury documented`);
+  if(!inc.recommendations) gaps.push('no prevention recommendation documented');
+  if(platoGap(inc)) gaps.push('PLATO follow-up needed');
+  return gaps.length ? gaps.join('; ') : 'No major gap identified from the export. Focus on preventing recurrence with a measurable intervention audit.';
+}
+function eventActionItems(inc){
+  const items=[];
+  const cause=(inc.causeOfFall||'').toString().toLowerCase();
+  const activity=(inc.activityAtFall||'').toString().toLowerCase();
+  const risk=(inc.fallRiskLevel||'').toString().toLowerCase();
+  const morse=parseFloat(inc.morseScore)||0;
+  const assisted=(inc.assisted||'').toString().toLowerCase();
+  const missed=missingPostFallItems(inc);
+
+  items.push('Manager/ANM: meet with the assigned RN and CA within 48-72 hours; document what happened, what barrier existed, and one agreed behavior change.');
+  if(!yesLike(inc.huddleCompleted)) items.push('Charge RN: complete a post-fall huddle and capture the root cause, intervention gap, and owner before the end of shift.');
+  if(missed.length) items.push(`RN/charge: close post-fall documentation gaps: ${missed.join(', ')}. Re-audit the next 3 high-risk patients for completion.`);
+  if(risk.includes('high') || morse>=45) items.push('Bedside team: verify high-risk fall bundle every shift: bed/chair alarm, low bed, call light and belongings in reach, non-skid footwear, assist device, signage, and rounding frequency.');
+  if(assisted.includes('no') || assisted.includes('un')) items.push('RN/CA team: use call-don\'t-fall teach-back on every round and bedside report; escalate impulsive or noncompliant patients for closer observation.');
+  if(cause.includes('toilet') || activity.includes('bath') || activity.includes('toilet') || activity.includes('commode')) items.push('CA/RN: create a toileting plan for high-risk patients, including before/after meals, before handoff, before sleep, and after diuretics.');
+  if(cause.includes('confusion') || cause.includes('altered') || activity.includes('attempting') || activity.includes('oob')) items.push('Provider/RN: screen for delirium contributors, use reorientation cues, review sitter/video monitor need, and place patient near staff when possible.');
+  if(cause.includes('med') || cause.includes('orthostatic')) items.push('RN/provider/pharmacy: review sedatives, antihypertensives, diuretics, pain meds, orthostatics, and timing around mobility.');
+  if(cause.includes('balance') || cause.includes('gait') || activity.includes('transfer') || activity.includes('ambulat')) items.push('RN/PT/OT: update mobility level, assist requirement, walker/gait belt access, and transfer plan on the board and in report.');
+  if(cause.includes('equipment') || cause.includes('environment')) items.push('Charge/CA: perform an immediate room safety sweep for alarms, cords, tubing, clutter, lighting, footwear, and floor hazards.');
+  if(platoGap(inc)) items.push('Leader/PLATO reviewer: complete targeted PLATO observation with the assigned RN/CA and coach missed fall-prevention elements in real time.');
+  if(inc.callLight || inc.howLong) items.push('Team: review call-light response and rounding timing; set a specific response expectation for high-risk fall patients.');
+  return [...new Set(items)];
+}
+function staffFollowUpLine(inc){
+  const documented = yesLike(inc.huddleManagerFU) || yesLike(inc.huddleManagerFU48h) || !!inc.huddleManagerFUDate;
+  if(documented) return 'Manager follow-up appears documented. Confirm the coaching note includes barriers, resources, and agreed prevention behavior.';
+  return 'Not documented in the loaded data. Action: meet with assigned RN/CA, ask what was missing or needed, and document the follow-up.';
+}
+function answerRows(inc){
+  const actions=eventActionItems(inc).slice(0,4);
+  return [
+    ['Details of the fall', fallDetailLine(inc)],
+    ['Review opportunities', reviewSignals(inc).join(' ')],
+    ['Interventions in place?', `Known from data: ${inc.fallRiskLevel||'risk level not documented'} risk, Morse ${inc.morseScore||'not documented'}, ${inc.recommendations?'recommendation: '+inc.recommendations:'no recommendation documented'}. Validate bedside alarm, low bed, call light, footwear, toileting plan, mobility aid, and observation level.`],
+    ['PLATO done? What was missing?', `${platoStatusLine(inc)} If missing or below 90%, complete a targeted PLATO round and coach the missed fall-prevention elements.`],
+    ['What went well and what did not?', `Went well: ${whatWentWell(inc)}. Opportunity: ${whatDidntGoWell(inc)}.`],
+    ['What changes can we make?', actions.join(' ')],
+    ['Resources / staff participation', 'Ask staff what resource was missing: sitter, rounding coverage, mobility equipment, alarms, PT/OT, provider review, or clearer RN/CA role assignment. Assign one owner and due date before closing the review.'],
+    ['Did you meet with assigned staff?', staffFollowUpLine(inc)],
+  ];
+}
+function periodActionItems(rows){
+  const items=[];
+  const huddleMiss=rows.filter(d=>!yesLike(d.huddleCompleted)).length;
+  const docMiss=rows.filter(d=>missingPostFallItems(d).length).length;
+  const unassisted=rows.filter(d=>(d.assisted??'').toString().toLowerCase().includes('no') || (d.assisted??'').toString().toLowerCase().includes('un')).length;
+  const platoMiss=rows.filter(d=>platoGap(d)).length;
+  const highRisk=rows.filter(d=>(d.fallRiskLevel||'').toLowerCase().includes('high') || (parseFloat(d.morseScore)||0)>=45).length;
+  const toileting=rows.filter(d=>{
+    const c=(d.causeOfFall||'').toLowerCase(), a=(d.activityAtFall||'').toLowerCase();
+    return c.includes('toilet') || a.includes('bath') || a.includes('toilet') || a.includes('commode');
+  }).length;
+  const nights=rows.filter(d=>shiftForTime(d.eventTime)==='Nights (2300–0659)').length;
+
+  if(rows.length) items.push(`Review ${rows.length} fall${rows.length!==1?'s':''} by unit, then by date. Close each review with an owner, due date, and next audit check.`);
+  if(highRisk) items.push(`${highRisk} high-risk/Morse 45+ event${highRisk!==1?'s':''}: audit fall bundle reliability for the next 14 days.`);
+  if(unassisted) items.push(`${unassisted} unassisted fall${unassisted!==1?'s':''}: focus on call-light response, teach-back, hourly rounding, and toileting before handoff/bedtime.`);
+  if(toileting) items.push(`${toileting} toileting-related signal${toileting!==1?'s':''}: start a proactive toileting mini-plan for high-risk patients.`);
+  if(nights) items.push(`${nights} night-shift fall${nights!==1?'s':''}: review evening toileting, sleep meds, bed alarms, and 2300-0700 rounding coverage.`);
+  if(huddleMiss) items.push(`${huddleMiss} event${huddleMiss!==1?'s':''} missing huddle documentation: require same-shift huddle closure.`);
+  if(docMiss) items.push(`${docMiss} event${docMiss!==1?'s':''} with post-fall documentation gaps: re-educate and re-audit post-fall vitals/pain/neuro/skin/flowsheet.`);
+  if(platoMiss) items.push(`${platoMiss} event${platoMiss!==1?'s':''} with low/missing PLATO signal: target PLATO observations with assigned RN/CA.`);
+  return items;
+}
+function renderBiweeklyFallCard(inc,i){
+  const ic=INJC[inc.injuryLevel]||C.muted;
+  const rows=answerRows(inc);
+  const actions=eventActionItems(inc);
+  return `<div class="slide">
+    <div class="slide-hdr">
+      <div class="slide-num" style="background:${ic}">${i+1}</div>
+      <div class="slide-hdr-text">
+        <div class="slide-title">${escHtml(inc.unit||'Unit')} · ${escHtml(inc.eventDate||'No date')} ${escHtml(inc.eventTime||'')}</div>
+        <div class="slide-sub">${escHtml(inc.patientInitials||'Patient')} · ${escHtml(inc.causeOfFall||'Cause not documented')} · ${escHtml(inc.activityAtFall||'Activity not documented')}</div>
+      </div>
+      <div class="slide-badge" style="background:${ic}22;border:1px solid ${ic}66;color:${ic}">${escHtml(inc.injuryLevel||'Unknown')}</div>
+    </div>
+    <div style="padding:14px 16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div class="rec-box"><div class="rec-title">Assigned Staff</div><div class="rec-text">RN: ${escHtml(inc.primaryRN||'Not documented')}<br>CA: ${escHtml(inc.primaryUAP||'No CA noted')}</div></div>
+        <div class="rec-box"><div class="rec-title">Risk Snapshot</div><div class="rec-text">Risk: ${escHtml(inc.fallRiskLevel||'Not documented')}<br>Morse: ${escHtml(inc.morseScore||'Not documented')}<br>Huddle: ${escHtml(inc.huddleCompleted||'Not documented')}</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
+        <thead><tr style="background:#F0F3F8">
+          <th style="padding:8px;text-align:left;width:30%;font-size:10px;text-transform:uppercase">Question</th>
+          <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Answer / Discussion Point</th>
+        </tr></thead>
+        <tbody>${rows.map(([q,a],idx)=>`
+          <tr style="border-bottom:1px solid #EEF1F6;background:${idx%2?'#F7F9FC':'#fff'}">
+            <td style="padding:8px;font-weight:800;color:#1B2A4A">${escHtml(q)}</td>
+            <td style="padding:8px;line-height:1.45;color:#1B2A4A">${escHtml(a)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="rec-box" style="background:#FFFBF0;border-color:#E2C46A">
+        <div class="rec-title">Action Items / Suggestions to Prevent Another Fall</div>
+        <ol style="margin:0 0 0 18px;padding:0;font-size:12px;line-height:1.55;color:#1B2A4A">
+          ${actions.map(a=>`<li style="margin-bottom:4px">${escHtml(a)}</li>`).join('')}
+        </ol>
+      </div>
+    </div>
+  </div>`;
+}
+function renderBiweeklyReview(){
+  const rows=getF().filter(d=>d._d);
+  const periods=getBiweeklyPeriods(rows);
+  const tabEl=document.getElementById('biweeklyTabs');
+  const summaryEl=document.getElementById('biweeklySummary');
+  const eventsEl=document.getElementById('biweeklyEvents');
+  if(!tabEl||!summaryEl||!eventsEl) return;
+  if(!periods.length){
+    activeBiweeklyKey=null;
+    tabEl.innerHTML='<div style="color:#5E6E8C;font-size:13px">No dated falls match the current filters.</div>';
+    summaryEl.innerHTML='';
+    eventsEl.innerHTML='';
+    return;
+  }
+  if(!activeBiweeklyKey || !periods.some(p=>p.key===activeBiweeklyKey)) activeBiweeklyKey=periods[0].key;
+  tabEl.innerHTML=periods.map(p=>`
+    <button class="unit-btn${p.key===activeBiweeklyKey?' active':''}" onclick="setBiweeklyPeriod('${p.key}')">
+      ${periodLabel(p)} <span style="color:${p.key===activeBiweeklyKey?'#E2C46A':'#0E7C7B'}">(${p.rows.length})</span>
+    </button>
+  `).join('');
+  const period=periods.find(p=>p.key===activeBiweeklyKey)||periods[0];
+  const periodRows=period.rows.slice().sort((a,b)=>{
+    const unit=(a.unit||'').localeCompare(b.unit||'');
+    if(unit) return unit;
+    const date=(a._d||0)-(b._d||0);
+    if(date) return date;
+    return String(a.eventTime||'').localeCompare(String(b.eventTime||''));
+  });
+  const injuries=periodRows.filter(d=>['Minor','Moderate','Major'].includes(d.injuryLevel)).length;
+  const huddles=periodRows.filter(d=>yesLike(d.huddleCompleted)).length;
+  const huddlePct=periodRows.length?Math.round(huddles/periodRows.length*100):0;
+  const unassisted=periodRows.filter(d=>(d.assisted??'').toString().toLowerCase().includes('no') || (d.assisted??'').toString().toLowerCase().includes('un')).length;
+  const periodActions=periodActionItems(periodRows);
+  summaryEl.innerHTML=`
+    <div id="biweeklyKPIs" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+      ${[
+        ['Falls',periodRows.length,periodLabel(period),C.navy],
+        ['With Injury',injuries,`${periodRows.length?Math.round(injuries/periodRows.length*100):0}% of falls`,injuries?C.orange:C.green],
+        ['Unassisted',unassisted,'Focus on rounding/call-light',unassisted?C.red:C.green],
+        ['Huddle Completion',huddlePct+'%',`${huddles}/${periodRows.length} documented`,huddlePct===100?C.green:huddlePct>=80?C.teal:C.orange],
+      ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c};font-size:22px">${v}</div><div class="kpi-sub">${escHtml(s)}</div></div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card">
+        <div class="card-title">Common Themes For This 2-Week Tab</div>
+        ${renderThemesBlock(periodRows)}
+      </div>
+      <div class="card">
+        <div class="card-title">Period Action Plan</div>
+        <ol style="margin:0 0 0 18px;padding:0;font-size:13px;line-height:1.6">
+          ${periodActions.map(a=>`<li style="margin-bottom:5px">${escHtml(a)}</li>`).join('')}
+        </ol>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5E6E8C;margin:0 0 10px 2px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+      Falls ordered by unit, then date
+    </div>`;
+  eventsEl.innerHTML=periodRows.map((inc,i)=>renderBiweeklyFallCard(inc,i)).join('');
 }
 
 function renderUnitReview(){
