@@ -382,18 +382,23 @@ function painMeasureKind(value) {
   if (text.includes('denominator') || text === 'den' || text.includes('eligible') || text.includes('opportun') || text.includes('total')) {
     return 'den';
   }
+  if (text.includes('%') || text.includes('percent') || text.includes('rate') || text.includes('score') || text.includes('compliance')) {
+    return 'pct';
+  }
   if (
     text.includes('numerator') ||
     text === 'num' ||
     text.includes('met count') ||
     text.includes('compliant count') ||
     text.includes('reassessed count') ||
-    text.includes('completed count')
+    text.includes('completed count') ||
+    text.includes('reassessed') ||
+    text.includes('reass.') ||
+    text.includes('w/i timeframe') ||
+    text.includes('wi timeframe') ||
+    text.includes('within timeframe')
   ) {
     return 'num';
-  }
-  if (text.includes('%') || text.includes('percent') || text.includes('rate') || text.includes('score') || text.includes('compliance')) {
-    return 'pct';
   }
   return 'pct';
 }
@@ -462,6 +467,9 @@ function buildWidePainRecords(source, columns, rows) {
     skippedNoOutcome: 0,
   };
   const year = syncYear();
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
 
   for (const row of rows) {
     const lookup = buildLookup(columns, row);
@@ -476,6 +484,10 @@ function buildWidePainRecords(source, columns, rows) {
     let usedMonth = false;
 
     for (const monthColumn of MONTH_COLUMNS) {
+      if (year > currentYear || (year === currentYear && monthColumn.month > currentMonth)) {
+        continue;
+      }
+
       const cell = findCell(lookup, monthColumn.aliases);
       const value = cellNumber(cell);
       if (value === null) continue;
