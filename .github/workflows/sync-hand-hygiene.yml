@@ -1,0 +1,27 @@
+name: Sync Hand Hygiene Data
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run sync
+        env:
+          SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
+          HAND_HYGIENE_SHEET_ID: ${{ secrets.SMARTSHEET_HAND_HYGIENE_SHEET_ID }}
+          HAND_HYGIENE_REPORT_ID: ${{ secrets.SMARTSHEET_HAND_HYGIENE_REPORT_ID }}
+          HAND_HYGIENE_SHEET_NAME: Arnot Hand Hygiene Landing Page
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
+        run: node scripts/sync-hand-hygiene.js
