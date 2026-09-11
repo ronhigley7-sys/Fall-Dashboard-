@@ -1,6 +1,6 @@
 // sync-hand-hygiene.js
-// Pulls the "Arnot Hand Hygiene Landing Page" Smartsheet sheet/report and
-// upserts monthly audit counts into Supabase `floor3_kpi`.
+// Pulls Smartsheet monthly KPI sources and upserts aggregate values into
+// Supabase `floor3_kpi` for the Office Dashboard.
 //
 // Required env vars:
 //   SMARTSHEET_TOKEN - Smartsheet API access token
@@ -11,32 +11,131 @@
 //   HAND_HYGIENE_SHEET_ID or SMARTSHEET_HAND_HYGIENE_SHEET_ID
 //   HAND_HYGIENE_REPORT_ID or SMARTSHEET_HAND_HYGIENE_REPORT_ID
 //   HAND_HYGIENE_SHEET_NAME (defaults to "Arnot Hand Hygiene Landing Page")
+//   PAIN_REASSESSMENT_SHEET_ID or SMARTSHEET_PAIN_REASSESSMENT_SHEET_ID
+//   PAIN_REASSESSMENT_REPORT_ID or SMARTSHEET_PAIN_REASSESSMENT_REPORT_ID
+//   PAIN_REASSESSMENT_SHEET_NAME (defaults to "Arnot Pain Reassessment Landing Page")
 
 const SMARTSHEET_TOKEN = process.env.SMARTSHEET_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const SHEET_NAME = process.env.HAND_HYGIENE_SHEET_NAME || 'Arnot Hand Hygiene Landing Page';
-const SHEET_ID = process.env.HAND_HYGIENE_SHEET_ID || process.env.SMARTSHEET_HAND_HYGIENE_SHEET_ID || '';
-const REPORT_ID = process.env.HAND_HYGIENE_REPORT_ID || process.env.SMARTSHEET_HAND_HYGIENE_REPORT_ID || '';
 
 if (!SMARTSHEET_TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Missing one or more required env vars: SMARTSHEET_TOKEN, SUPABASE_URL, SUPABASE_KEY');
   process.exit(1);
 }
 
-const FIELD_MAP = {
-  Location: { col: 'location', type: 'text' },
-  Month: { col: 'month', type: 'number' },
-  Year: { col: 'year', type: 'number' },
-  'Audit Date': { col: 'audit_date', type: 'date' },
-  Shift: { col: 'shift', type: 'text' },
-  'Audit Location': { col: 'audit_location', type: 'text' },
-  'Removal Trials': { col: 'removal_trials', type: 'number' },
-  'Removal Trial': { col: 'removal_trials', type: 'number' },
+const SOURCE_DEFS = [
+  {
+    key: 'hand',
+    label: 'Hand Hygiene',
+    defaultName: 'Arnot Hand Hygiene Landing Page',
+    nameEnv: 'HAND_HYGIENE_SHEET_NAME',
+    sheetIdEnvs: ['HAND_HYGIENE_SHEET_ID', 'SMARTSHEET_HAND_HYGIENE_SHEET_ID'],
+    reportIdEnvs: ['HAND_HYGIENE_REPORT_ID', 'SMARTSHEET_HAND_HYGIENE_REPORT_ID'],
+    requiredWords: ['hand', 'hygiene'],
+    searchTerms: ['Arnot Hand Hygiene Landing Page', 'Hand Hygiene Landing Page', 'Hand Hygiene'],
+    optional: false,
+  },
+  {
+    key: 'pain',
+    label: 'Pain Reassessment',
+    defaultName: 'Arnot Pain Reassessment Landing Page',
+    nameEnv: 'PAIN_REASSESSMENT_SHEET_NAME',
+    sheetIdEnvs: ['PAIN_REASSESSMENT_SHEET_ID', 'SMARTSHEET_PAIN_REASSESSMENT_SHEET_ID'],
+    reportIdEnvs: ['PAIN_REASSESSMENT_REPORT_ID', 'SMARTSHEET_PAIN_REASSESSMENT_REPORT_ID'],
+    requiredWords: ['pain', 'reassess'],
+    searchTerms: [
+      'Arnot Pain Reassessment Landing Page',
+      'Pain Reassessment Landing Page',
+      'Pain Reassessment',
+      'Pain Reassess',
+    ],
+    optional: true,
+  },
+];
+
+const COMMON_ALIASES = {
+  location: [
+    'Location',
+    'Unit',
+    'Nursing Unit',
+    'Home Unit',
+    'Nurse Home Unit',
+    'Audit Unit',
+    'Department',
+  ],
+  month: ['Month', 'Audit Month'],
+  year: ['Year', 'Audit Year'],
+  auditDate: ['Audit Date', 'Date', 'Observation Date', 'Entry Date', 'Created Date'],
 };
+
+const PAIN_NUM_ALIASES = [
+  'Pain Numerator',
+  'Pain Reassessment Numerator',
+  'Pain Num',
+  'PainNum',
+  'Numerator',
+  'Met',
+  'Compliant Count',
+  'Reassessed Count',
+  'Completed Reassessments',
+  'Reassessment Complete',
+  'Patients Reassessed',
+];
+
+const PAIN_DEN_ALIASES = [
+  'Pain Denominator',
+  'Pain Reassessment Denominator',
+  'Pain Den',
+  'PainDen',
+  'Denominator',
+  'Total',
+  'Audits',
+  'Pain Audits',
+  'Eligible',
+  'Opportunities',
+  'Total Patients',
+  'Total Reassessments',
+];
+
+const PAIN_STATUS_ALIASES = [
+  'Pain Reassessment',
+  'Pain Reassessment Met',
+  'Pain Reassessment Complete',
+  'Pain Reassessment Completed',
+  'Reassessment Complete',
+  'Reassessment Completed',
+  'Reassessed',
+  'Pain Reassessed',
+  'Compliant',
+  'Compliance',
+  'Completed',
+  'Met',
+  'Status',
+  'Outcome',
+  'Timely',
+  'Within Timeframe',
+  'Pain Reassessment Within Timeframe',
+];
+
+function envFirst(names) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return '';
+}
+
+function sourceName(def) {
+  return process.env[def.nameEnv] || def.defaultName;
+}
 
 function textValue(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeTitle(value) {
+  return textValue(value).replace(/[^a-z0-9]/g, '');
 }
 
 function kpiUnitForLocation(location) {
@@ -46,16 +145,83 @@ function kpiUnitForLocation(location) {
   return clean.replace(/^AOMC\s+/i, '') || clean;
 }
 
-function coerce(type, cell) {
-  if (!cell) return null;
-  const raw = cell.displayValue ?? cell.value;
-  if (raw === undefined || raw === null || raw === '') return null;
-  if (type === 'number') {
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : null;
+function parseNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  const cleaned = String(value).trim().replace(/,/g, '').replace(/%$/, '');
+  if (!cleaned) return null;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
+function monthNumber(value) {
+  const numeric = parseNumber(value);
+  if (numeric && numeric >= 1 && numeric <= 12) return numeric;
+  const name = textValue(value);
+  const names = [
+    'january',
+    'february',
+    'march',
+    'april',
+    'may',
+    'june',
+    'july',
+    'august',
+    'september',
+    'october',
+    'november',
+    'december',
+  ];
+  const index = names.findIndex((month) => month.startsWith(name.slice(0, 3)));
+  return index >= 0 ? index + 1 : null;
+}
+
+function yearNumber(value) {
+  const numeric = parseNumber(value);
+  if (!numeric) return null;
+  return numeric < 100 ? 2000 + numeric : numeric;
+}
+
+function parseDateParts(value) {
+  if (value === undefined || value === null || value === '') return {};
+  const raw = String(value).trim();
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return { year: Number(iso[1]), month: Number(iso[2]) };
+
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slash) {
+    const year = Number(slash[3]);
+    return {
+      year: year < 100 ? 2000 + year : year,
+      month: Number(slash[1]),
+    };
   }
-  if (type === 'date') return String(raw).slice(0, 10);
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return {
+      year: parsed.getUTCFullYear(),
+      month: parsed.getUTCMonth() + 1,
+    };
+  }
+
+  return {};
+}
+
+function cellRaw(cell) {
+  if (!cell) return null;
+  return cell.displayValue ?? cell.value ?? null;
+}
+
+function cellText(cell) {
+  const raw = cellRaw(cell);
+  if (raw === undefined || raw === null || raw === '') return '';
   return String(raw).trim();
+}
+
+function cellNumber(cell) {
+  return parseNumber(cellRaw(cell));
 }
 
 async function smartsheetGet(path) {
@@ -68,29 +234,70 @@ async function smartsheetGet(path) {
   return res.json();
 }
 
-async function resolveSource() {
-  if (REPORT_ID) return { type: 'report', id: REPORT_ID, name: SHEET_NAME };
-  if (SHEET_ID) return { type: 'sheet', id: SHEET_ID, name: SHEET_NAME };
+function scoreSearchMatch(item, def, terms) {
+  const type = textValue(item.objectType || item.type);
+  if (!type.includes('sheet') && !type.includes('report')) return null;
 
-  const data = await smartsheetGet(`search?query=${encodeURIComponent(SHEET_NAME)}`);
-  const results = data.results || [];
-  const wanted = textValue(SHEET_NAME);
-  const match = results.find((item) => {
-    const name = textValue(item.text || item.name || item.title);
-    const type = textValue(item.objectType || item.type);
-    return name === wanted && (type.includes('sheet') || type.includes('report'));
-  }) || results.find((item) => {
-    const name = textValue(item.text || item.name || item.title);
-    const type = textValue(item.objectType || item.type);
-    return name.includes(wanted) && (type.includes('sheet') || type.includes('report'));
-  });
+  const title = item.text || item.name || item.title || '';
+  const name = textValue(title);
+  let score = 0;
 
-  if (!match) {
-    throw new Error(`Could not find a Smartsheet sheet/report named "${SHEET_NAME}". Add SMARTSHEET_HAND_HYGIENE_SHEET_ID or SMARTSHEET_HAND_HYGIENE_REPORT_ID if search cannot see it.`);
+  if (def.requiredWords.every((word) => name.includes(word))) score += 40;
+  else return null;
+
+  for (const term of terms) {
+    const wanted = textValue(term);
+    if (!wanted) continue;
+    if (name === wanted) score += 100;
+    else if (name.includes(wanted)) score += 60;
+    else if (wanted.includes(name)) score += 20;
   }
 
-  const type = textValue(match.objectType || match.type).includes('report') ? 'report' : 'sheet';
-  return { type, id: String(match.objectId || match.id), name: match.text || match.name || SHEET_NAME };
+  if (name.includes('landing page')) score += 8;
+  if (type.includes('sheet')) score += 3;
+
+  return {
+    score,
+    type: type.includes('report') ? 'report' : 'sheet',
+    id: String(item.objectId || item.id),
+    name: title || sourceName(def),
+  };
+}
+
+async function resolveSource(def) {
+  const name = sourceName(def);
+  const reportId = envFirst(def.reportIdEnvs);
+  const sheetId = envFirst(def.sheetIdEnvs);
+  if (reportId) return { key: def.key, type: 'report', id: reportId, name };
+  if (sheetId) return { key: def.key, type: 'sheet', id: sheetId, name };
+
+  const terms = [...new Set([name, ...def.searchTerms].filter(Boolean))];
+  const candidates = [];
+
+  for (const term of terms) {
+    const data = await smartsheetGet(`search?query=${encodeURIComponent(term)}`);
+    const results = data.results || [];
+    const preview = results
+      .slice(0, 6)
+      .map((item) => `${item.objectType || item.type || 'item'}:${item.text || item.name || item.title || item.objectId || item.id}`)
+      .join(' | ');
+    console.log(`${def.label} search "${term}" returned ${results.length} result(s): ${preview || 'none'}`);
+
+    for (const item of results) {
+      const candidate = scoreSearchMatch(item, def, terms);
+      if (candidate) candidates.push(candidate);
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (candidates[0]) return { key: def.key, ...candidates[0] };
+
+  const message = `Could not find a Smartsheet sheet/report for ${def.label}.`;
+  if (def.optional) {
+    console.warn(`${message} Set ${def.sheetIdEnvs[1]} or ${def.reportIdEnvs[1]} if the name differs.`);
+    return null;
+  }
+  throw new Error(`${message} Set ${def.sheetIdEnvs[1]} or ${def.reportIdEnvs[1]} if search cannot see it.`);
 }
 
 async function fetchAllRows(source) {
@@ -111,73 +318,171 @@ async function fetchAllRows(source) {
   return { columns, rows };
 }
 
-function buildPayload(source, columns, rows) {
+function buildLookup(columns, row) {
   const idToTitle = {};
   for (const column of columns) {
     if (column.id) idToTitle[column.id] = column.title;
     if (column.virtualId) idToTitle[column.virtualId] = column.title;
   }
 
-  const records = [];
-  let skippedNoMonth = 0;
-  let skippedNoLocation = 0;
-
-  for (const row of rows) {
-    const cellsByTitle = {};
-    for (const cell of row.cells || []) {
-      const title = idToTitle[cell.columnId] || idToTitle[cell.virtualColumnId];
-      if (title) cellsByTitle[title] = cell;
-    }
-
-    const record = {
-      smartsheet_row_id: String(row.id),
-      source_name: source.name,
-      synced_at: new Date().toISOString(),
-    };
-
-    for (const [title, { col, type }] of Object.entries(FIELD_MAP)) {
-      if (record[col] !== undefined && record[col] !== null) continue;
-      record[col] = coerce(type, cellsByTitle[title]);
-    }
-
-    if (!record.location) {
-      skippedNoLocation += 1;
-      continue;
-    }
-
-    if (record.audit_date && (!record.year || !record.month)) {
-      const [year, month] = String(record.audit_date).split('-').map(Number);
-      record.year = record.year || year;
-      record.month = record.month || month;
-    }
-
-    if (!record.year || !record.month) {
-      skippedNoMonth += 1;
-      continue;
-    }
-
-    record.month_key = `${record.year}-${String(record.month).padStart(2, '0')}`;
-    records.push(record);
+  const normalized = new Map();
+  for (const cell of row.cells || []) {
+    const title = idToTitle[cell.columnId] || idToTitle[cell.virtualColumnId];
+    if (!title) continue;
+    normalized.set(normalizeTitle(title), cell);
   }
 
-  return { records, skippedNoLocation, skippedNoMonth };
+  return { normalized };
 }
 
-function groupMonthlyCounts(records) {
+function findCell(lookup, aliases) {
+  for (const alias of aliases) {
+    const normalized = normalizeTitle(alias);
+    if (lookup.normalized.has(normalized)) return lookup.normalized.get(normalized);
+  }
+
+  for (const alias of aliases) {
+    const normalized = normalizeTitle(alias);
+    if (!normalized || normalized.length < 4) continue;
+    for (const [title, cell] of lookup.normalized.entries()) {
+      if (title.includes(normalized) || normalized.includes(title)) return cell;
+    }
+  }
+
+  return null;
+}
+
+function commonRecord(source, columns, row) {
+  const lookup = buildLookup(columns, row);
+  const location = cellText(findCell(lookup, COMMON_ALIASES.location));
+  const auditDate = cellRaw(findCell(lookup, COMMON_ALIASES.auditDate));
+  const dateParts = parseDateParts(auditDate);
+  const year = yearNumber(cellRaw(findCell(lookup, COMMON_ALIASES.year))) || dateParts.year;
+  const month = monthNumber(cellRaw(findCell(lookup, COMMON_ALIASES.month))) || dateParts.month;
+
+  if (!location) return { lookup, skip: 'location' };
+  if (!year || !month) return { lookup, skip: 'month/year' };
+
+  return {
+    lookup,
+    record: {
+      unit: kpiUnitForLocation(location),
+      month_key: `${year}-${String(month).padStart(2, '0')}`,
+      year,
+      month,
+      sourceName: source.name,
+      smartsheetRowId: String(row.id),
+    },
+  };
+}
+
+function painStatus(cell) {
+  const raw = cellRaw(cell);
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw === 'boolean') return raw;
+
+  const numeric = parseNumber(raw);
+  if (numeric !== null && (numeric === 0 || numeric === 1)) return numeric === 1;
+
+  const value = textValue(raw);
+  if (!value) return null;
+  if (['yes', 'y', 'true', 'met', 'pass', 'passed', 'complete', 'completed', 'compliant', 'done', 'within timeframe', 'on time', 'timely'].includes(value)) {
+    return true;
+  }
+  if (['no', 'n', 'false', 'not met', 'fail', 'failed', 'incomplete', 'non-compliant', 'noncompliant', 'missing', 'late', 'untimely'].includes(value)) {
+    return false;
+  }
+  if (value.includes('not met') || value.includes('non compliant') || value.includes('non-compliant') || value.includes('fail') || value.includes('late')) {
+    return false;
+  }
+  if (value.includes('met') || value.includes('compliant') || value.includes('complete') || value.includes('within')) {
+    return true;
+  }
+  return null;
+}
+
+function buildRecordsForSource(def, source, columns, rows) {
+  const records = [];
+  const stats = {
+    skippedNoLocation: 0,
+    skippedNoMonth: 0,
+    skippedNoOutcome: 0,
+  };
+
+  for (const row of rows) {
+    const base = commonRecord(source, columns, row);
+    if (base.skip === 'location') {
+      stats.skippedNoLocation += 1;
+      continue;
+    }
+    if (base.skip === 'month/year') {
+      stats.skippedNoMonth += 1;
+      continue;
+    }
+
+    if (def.key === 'hand') {
+      records.push({ ...base.record, metric: 'hand', handCount: 1 });
+      continue;
+    }
+
+    const numerator = cellNumber(findCell(base.lookup, PAIN_NUM_ALIASES));
+    const denominator = cellNumber(findCell(base.lookup, PAIN_DEN_ALIASES));
+    if (denominator !== null && denominator > 0) {
+      records.push({
+        ...base.record,
+        metric: 'pain',
+        painMet: numerator || 0,
+        painDen: denominator,
+      });
+      continue;
+    }
+
+    const status = painStatus(findCell(base.lookup, PAIN_STATUS_ALIASES));
+    if (status === null) {
+      stats.skippedNoOutcome += 1;
+      continue;
+    }
+
+    records.push({
+      ...base.record,
+      metric: 'pain',
+      painMet: status ? 1 : 0,
+      painDen: 1,
+    });
+  }
+
+  return { records, stats };
+}
+
+function groupMonthlyMetrics(records) {
   const groups = new Map();
   for (const record of records) {
-    const unit = kpiUnitForLocation(record.location);
-    const key = `${unit}|${record.month_key}`;
+    const key = `${record.unit}|${record.month_key}`;
     const current = groups.get(key) || {
-      unit,
+      unit: record.unit,
       month_key: record.month_key,
       year: record.year,
       month: record.month,
-      count: 0,
+      handCount: 0,
+      painMet: 0,
+      painDen: 0,
+      handSource: '',
+      painSource: '',
     };
-    current.count += 1;
+
+    if (record.metric === 'hand') {
+      current.handCount += record.handCount || 0;
+      current.handSource = record.sourceName;
+    }
+    if (record.metric === 'pain') {
+      current.painMet += record.painMet || 0;
+      current.painDen += record.painDen || 0;
+      current.painSource = record.sourceName;
+    }
+
     groups.set(key, current);
   }
+
   return [...groups.values()].sort((a, b) => `${a.month_key}|${a.unit}`.localeCompare(`${b.month_key}|${b.unit}`));
 }
 
@@ -205,24 +510,35 @@ async function existingKpiData(unit, monthKey) {
 }
 
 async function upsertMonthlyKpi(records) {
-  const groups = groupMonthlyCounts(records);
+  const groups = groupMonthlyMetrics(records);
   const now = new Date().toISOString();
   const payload = [];
 
   for (const group of groups) {
     const current = await existingKpiData(group.unit, group.month_key);
+    const next = { ...current };
+
+    if (group.handCount > 0) {
+      next.hhAudits = String(group.handCount);
+      next.handHygieneAudits = String(group.handCount);
+      next.handHygieneSource = group.handSource || sourceName(SOURCE_DEFS[0]);
+      next.handHygieneSyncedAt = now;
+    }
+
+    if (group.painDen > 0) {
+      next.painNum = String(group.painMet);
+      next.painDen = String(group.painDen);
+      next.painAudits = String(group.painDen);
+      next.painReassessmentSource = group.painSource || sourceName(SOURCE_DEFS[1]);
+      next.painReassessmentSyncedAt = now;
+    }
+
     payload.push({
       unit: group.unit,
       month_key: group.month_key,
       year: group.year,
       month: group.month,
-      kpi_data: {
-        ...current,
-        hhAudits: String(group.count),
-        handHygieneAudits: String(group.count),
-        handHygieneSource: SHEET_NAME,
-        handHygieneSyncedAt: now,
-      },
+      kpi_data: next,
       updated_at: now,
     });
   }
@@ -249,24 +565,45 @@ async function upsertMonthlyKpi(records) {
   return groups;
 }
 
-async function main() {
-  const source = await resolveSource();
-  console.log(`Fetching Hand Hygiene ${source.type} "${source.name}" (${source.id})...`);
+async function loadSource(def) {
+  const source = await resolveSource(def);
+  if (!source) return [];
+
+  console.log(`Fetching ${def.label} ${source.type} "${source.name}" (${source.id})...`);
   const { columns, rows } = await fetchAllRows(source);
-  console.log(`Fetched ${rows.length} rows, ${columns.length} columns.`);
+  console.log(`Fetched ${rows.length} ${def.label} rows, ${columns.length} columns.`);
+  console.log(`${def.label} columns: ${columns.map((column) => column.title).join(' | ')}`);
 
-  const { records, skippedNoLocation, skippedNoMonth } = buildPayload(source, columns, rows);
-  console.log(`Mapped ${records.length} rows (skipped ${skippedNoLocation} missing location, ${skippedNoMonth} missing month/year).`);
+  const { records, stats } = buildRecordsForSource(def, source, columns, rows);
+  console.log(
+    `Mapped ${records.length} ${def.label} records ` +
+      `(skipped ${stats.skippedNoLocation} missing location, ` +
+      `${stats.skippedNoMonth} missing month/year, ${stats.skippedNoOutcome} missing outcome).`
+  );
+  return records;
+}
 
-  if (!records.length) {
+async function main() {
+  const allRecords = [];
+  for (const def of SOURCE_DEFS) {
+    allRecords.push(...(await loadSource(def)));
+  }
+
+  if (!allRecords.length) {
     console.log('Nothing to sync.');
     return;
   }
 
-  const groups = await upsertMonthlyKpi(records);
+  const groups = await upsertMonthlyKpi(allRecords);
   const floor3 = groups.filter((group) => textValue(group.unit) === '3b');
-  const floor3Summary = floor3.map((group) => `${group.month_key}: ${group.count}`).join(', ') || 'none';
-  console.log(`Hand Hygiene sync complete. Monthly groups: ${groups.length}. AOMC 3B/3C counts: ${floor3Summary}.`);
+  const floor3Summary = floor3
+    .map((group) => {
+      const hand = group.handCount > 0 ? `hand ${group.handCount}` : 'hand --';
+      const pain = group.painDen > 0 ? `pain ${group.painMet}/${group.painDen}` : 'pain --';
+      return `${group.month_key}: ${hand}, ${pain}`;
+    })
+    .join(', ') || 'none';
+  console.log(`Monthly KPI sync complete. Monthly groups: ${groups.length}. AOMC 3B/3C counts: ${floor3Summary}.`);
 }
 
 main().catch((err) => {
