@@ -1,11 +1,11 @@
 // sync-hand-hygiene.js
 // Pulls the "Arnot Hand Hygiene Landing Page" Smartsheet sheet/report and
-// upserts de-identified audit rows into Supabase `hand_hygiene_observations`.
+// upserts monthly audit counts into Supabase `floor3_kpi`.
 //
 // Required env vars:
 //   SMARTSHEET_TOKEN - Smartsheet API access token
 //   SUPABASE_URL     - e.g. https://xnsdvdfceflmagfhpycw.supabase.co
-//   SUPABASE_KEY     - service role key for server-side upsert
+//   SUPABASE_KEY     - Supabase key with insert/update on floor3_kpi
 //
 // Optional env vars:
 //   HAND_HYGIENE_SHEET_ID or SMARTSHEET_HAND_HYGIENE_SHEET_ID
@@ -37,6 +37,13 @@ const FIELD_MAP = {
 
 function textValue(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function kpiUnitForLocation(location) {
+  const clean = String(location || '').trim();
+  const key = textValue(clean);
+  if (['aomc 3b/3c', 'aomc 3bc', '3b/3c', '3bc'].includes(key)) return '3B';
+  return clean.replace(/^AOMC\s+/i, '') || clean;
 }
 
 function coerce(type, cell) {
@@ -156,28 +163,90 @@ function buildPayload(source, columns, rows) {
   return { records, skippedNoLocation, skippedNoMonth };
 }
 
-async function upsertToSupabase(records) {
-  const batchSize = 500;
-  for (let i = 0; i < records.length; i += batchSize) {
-    const batch = records.slice(i, i + batchSize);
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/hand_hygiene_observations?on_conflict=smartsheet_row_id`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          Prefer: 'resolution=merge-duplicates',
-        },
-        body: JSON.stringify(batch),
-      }
-    );
+function groupMonthlyCounts(records) {
+  const groups = new Map();
+  for (const record of records) {
+    const unit = kpiUnitForLocation(record.location);
+    const key = `${unit}|${record.month_key}`;
+    const current = groups.get(key) || {
+      unit,
+      month_key: record.month_key,
+      year: record.year,
+      month: record.month,
+      count: 0,
+    };
+    current.count += 1;
+    groups.set(key, current);
+  }
+  return [...groups.values()].sort((a, b) => `${a.month_key}|${a.unit}`.localeCompare(`${b.month_key}|${b.unit}`));
+}
+
+async function supabaseGet(path) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new Error(`Supabase read error ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function existingKpiData(unit, monthKey) {
+  const params = new URLSearchParams({
+    select: 'kpi_data',
+    unit: `eq.${unit}`,
+    month_key: `eq.${monthKey}`,
+    limit: '1',
+  });
+  const rows = await supabaseGet(`floor3_kpi?${params.toString()}`);
+  return rows?.[0]?.kpi_data && typeof rows[0].kpi_data === 'object' ? rows[0].kpi_data : {};
+}
+
+async function upsertMonthlyKpi(records) {
+  const groups = groupMonthlyCounts(records);
+  const now = new Date().toISOString();
+  const payload = [];
+
+  for (const group of groups) {
+    const current = await existingKpiData(group.unit, group.month_key);
+    payload.push({
+      unit: group.unit,
+      month_key: group.month_key,
+      year: group.year,
+      month: group.month,
+      kpi_data: {
+        ...current,
+        hhAudits: String(group.count),
+        handHygieneAudits: String(group.count),
+        handHygieneSource: SHEET_NAME,
+        handHygieneSyncedAt: now,
+      },
+      updated_at: now,
+    });
+  }
+
+  const batchSize = 200;
+  for (let i = 0; i < payload.length; i += batchSize) {
+    const batch = payload.slice(i, i + batchSize);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/floor3_kpi?on_conflict=unit,month_key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify(batch),
+    });
     if (!res.ok) {
       throw new Error(`Supabase upsert error ${res.status}: ${await res.text()}`);
     }
-    console.log(`Upserted rows ${i + 1}-${i + batch.length} of ${records.length}`);
+    console.log(`Upserted monthly KPI rows ${i + 1}-${i + batch.length} of ${payload.length}`);
   }
+
+  return groups;
 }
 
 async function main() {
@@ -194,8 +263,10 @@ async function main() {
     return;
   }
 
-  await upsertToSupabase(records);
-  console.log('Hand Hygiene sync complete.');
+  const groups = await upsertMonthlyKpi(records);
+  const floor3 = groups.filter((group) => textValue(group.unit) === '3b');
+  const floor3Summary = floor3.map((group) => `${group.month_key}: ${group.count}`).join(', ') || 'none';
+  console.log(`Hand Hygiene sync complete. Monthly groups: ${groups.length}. AOMC 3B/3C counts: ${floor3Summary}.`);
 }
 
 main().catch((err) => {
