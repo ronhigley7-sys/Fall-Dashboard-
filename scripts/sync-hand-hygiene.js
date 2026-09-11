@@ -69,6 +69,21 @@ const COMMON_ALIASES = {
   auditDate: ['Audit Date', 'Date', 'Observation Date', 'Entry Date', 'Created Date'],
 };
 
+const MONTH_COLUMNS = [
+  { month: 1, aliases: ['Jan', 'January'] },
+  { month: 2, aliases: ['Feb', 'February'] },
+  { month: 3, aliases: ['Mar', 'March'] },
+  { month: 4, aliases: ['Apr', 'April'] },
+  { month: 5, aliases: ['May'] },
+  { month: 6, aliases: ['Jun', 'June'] },
+  { month: 7, aliases: ['Jul', 'July'] },
+  { month: 8, aliases: ['Aug', 'August'] },
+  { month: 9, aliases: ['Sep', 'Sept', 'September'] },
+  { month: 10, aliases: ['Oct', 'October'] },
+  { month: 11, aliases: ['Nov', 'November'] },
+  { month: 12, aliases: ['Dec', 'December'] },
+];
+
 const PAIN_NUM_ALIASES = [
   'Pain Numerator',
   'Pain Reassessment Numerator',
@@ -181,6 +196,10 @@ function yearNumber(value) {
   const numeric = parseNumber(value);
   if (!numeric) return null;
   return numeric < 100 ? 2000 + numeric : numeric;
+}
+
+function syncYear() {
+  return yearNumber(process.env.PAIN_REASSESSMENT_YEAR) || new Date().getUTCFullYear();
 }
 
 function parseDateParts(value) {
@@ -352,6 +371,40 @@ function findCell(lookup, aliases) {
   return null;
 }
 
+function hasWideMonthColumns(columns) {
+  const titles = new Set(columns.map((column) => normalizeTitle(column.title)));
+  return MONTH_COLUMNS.filter((month) => month.aliases.some((alias) => titles.has(normalizeTitle(alias)))).length >= 3;
+}
+
+function painMeasureKind(value) {
+  const text = textValue(value);
+  if (!text) return 'pct';
+  if (text.includes('denominator') || text === 'den' || text.includes('eligible') || text.includes('opportun') || text.includes('total')) {
+    return 'den';
+  }
+  if (
+    text.includes('numerator') ||
+    text === 'num' ||
+    text.includes('met count') ||
+    text.includes('compliant count') ||
+    text.includes('reassessed count') ||
+    text.includes('completed count')
+  ) {
+    return 'num';
+  }
+  if (text.includes('%') || text.includes('percent') || text.includes('rate') || text.includes('score') || text.includes('compliance')) {
+    return 'pct';
+  }
+  return 'pct';
+}
+
+function normalizePercent(value) {
+  const number = parseNumber(value);
+  if (number === null) return null;
+  if (number >= 0 && number <= 1) return number * 100;
+  return number;
+}
+
 function commonRecord(source, columns, row) {
   const lookup = buildLookup(columns, row);
   const location = cellText(findCell(lookup, COMMON_ALIASES.location));
@@ -401,7 +454,63 @@ function painStatus(cell) {
   return null;
 }
 
+function buildWidePainRecords(source, columns, rows) {
+  const records = [];
+  const stats = {
+    skippedNoLocation: 0,
+    skippedNoMonth: 0,
+    skippedNoOutcome: 0,
+  };
+  const year = syncYear();
+
+  for (const row of rows) {
+    const lookup = buildLookup(columns, row);
+    const location = cellText(findCell(lookup, [...COMMON_ALIASES.location, 'Department']));
+    if (!location) {
+      stats.skippedNoLocation += 1;
+      continue;
+    }
+
+    const primary = cellText(findCell(lookup, ['Primary', 'Measure', 'Metric', 'Type', 'Category', 'Name']));
+    const kind = painMeasureKind(primary);
+    let usedMonth = false;
+
+    for (const monthColumn of MONTH_COLUMNS) {
+      const cell = findCell(lookup, monthColumn.aliases);
+      const value = cellNumber(cell);
+      if (value === null) continue;
+
+      usedMonth = true;
+      const base = {
+        unit: kpiUnitForLocation(location),
+        month_key: `${year}-${String(monthColumn.month).padStart(2, '0')}`,
+        year,
+        month: monthColumn.month,
+        sourceName: source.name,
+        smartsheetRowId: String(row.id),
+        metric: 'pain',
+      };
+
+      if (kind === 'den') {
+        records.push({ ...base, painMet: 0, painDen: value });
+      } else if (kind === 'num') {
+        records.push({ ...base, painMet: value, painDen: 0 });
+      } else {
+        records.push({ ...base, painPct: normalizePercent(value) });
+      }
+    }
+
+    if (!usedMonth) stats.skippedNoOutcome += 1;
+  }
+
+  return { records, stats };
+}
+
 function buildRecordsForSource(def, source, columns, rows) {
+  if (def.key === 'pain' && hasWideMonthColumns(columns)) {
+    return buildWidePainRecords(source, columns, rows);
+  }
+
   const records = [];
   const stats = {
     skippedNoLocation: 0,
@@ -466,6 +575,7 @@ function groupMonthlyMetrics(records) {
       handCount: 0,
       painMet: 0,
       painDen: 0,
+      painPctValues: [],
       handSource: '',
       painSource: '',
     };
@@ -477,6 +587,9 @@ function groupMonthlyMetrics(records) {
     if (record.metric === 'pain') {
       current.painMet += record.painMet || 0;
       current.painDen += record.painDen || 0;
+      if (record.painPct !== undefined && record.painPct !== null) {
+        current.painPctValues.push(record.painPct);
+      }
       current.painSource = record.sourceName;
     }
 
@@ -531,6 +644,14 @@ async function upsertMonthlyKpi(records) {
       next.painAudits = String(group.painDen);
       next.painReassessmentSource = group.painSource || sourceName(SOURCE_DEFS[1]);
       next.painReassessmentSyncedAt = now;
+    } else if (group.painPctValues.length > 0) {
+      const pct = Math.round(group.painPctValues.reduce((sum, value) => sum + value, 0) / group.painPctValues.length);
+      next.painPct = String(pct);
+      next.painNum = String(pct);
+      next.painDen = '100';
+      next.painAudits = '100';
+      next.painReassessmentSource = group.painSource || sourceName(SOURCE_DEFS[1]);
+      next.painReassessmentSyncedAt = now;
     }
 
     payload.push({
@@ -573,6 +694,16 @@ async function loadSource(def) {
   const { columns, rows } = await fetchAllRows(source);
   console.log(`Fetched ${rows.length} ${def.label} rows, ${columns.length} columns.`);
   console.log(`${def.label} columns: ${columns.map((column) => column.title).join(' | ')}`);
+  if (def.key === 'pain') {
+    const preview = rows.slice(0, 8).map((row) => {
+      const lookup = buildLookup(columns, row);
+      const department = cellText(findCell(lookup, [...COMMON_ALIASES.location, 'Department'])) || '--';
+      const primary = cellText(findCell(lookup, ['Primary', 'Measure', 'Metric', 'Type', 'Category', 'Name'])) || '--';
+      const sep = cellText(findCell(lookup, ['Sep', 'Sept', 'September'])) || '--';
+      return `${department} / ${primary} / Sep ${sep}`;
+    }).join(' | ');
+    console.log(`${def.label} row preview: ${preview || 'none'}`);
+  }
 
   const { records, stats } = buildRecordsForSource(def, source, columns, rows);
   console.log(
@@ -599,7 +730,9 @@ async function main() {
   const floor3Summary = floor3
     .map((group) => {
       const hand = group.handCount > 0 ? `hand ${group.handCount}` : 'hand --';
-      const pain = group.painDen > 0 ? `pain ${group.painMet}/${group.painDen}` : 'pain --';
+      const pain = group.painDen > 0
+        ? `pain ${group.painMet}/${group.painDen}`
+        : (group.painPctValues.length ? `pain ${Math.round(group.painPctValues[0])}%` : 'pain --');
       return `${group.month_key}: ${hand}, ${pain}`;
     })
     .join(', ') || 'none';
