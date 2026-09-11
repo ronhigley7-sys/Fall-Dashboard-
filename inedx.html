@@ -1581,6 +1581,85 @@ function periodActionItems(rows){
   if(platoMiss) items.push(`${platoMiss} event${platoMiss!==1?'s':''} with low/missing PLATO signal: target PLATO observations with assigned RN/CA.`);
   return items;
 }
+function fallReductionActionRows(rows){
+  const actions=[];
+  const add=(priority,trigger,action,owner,due,measure)=>actions.push({priority,trigger,action,owner,due,measure});
+  const huddleMiss=rows.filter(d=>!yesLike(d.huddleCompleted)).length;
+  const docMiss=rows.filter(d=>missingPostFallItems(d).length).length;
+  const unassisted=rows.filter(d=>(d.assisted??'').toString().toLowerCase().includes('no') || (d.assisted??'').toString().toLowerCase().includes('un')).length;
+  const platoMiss=rows.filter(d=>platoGap(d)).length;
+  const highRisk=rows.filter(d=>(d.fallRiskLevel||'').toString().toLowerCase().includes('high') || (parseFloat(d.morseScore)||0)>=45).length;
+  const toileting=rows.filter(d=>{
+    const c=(d.causeOfFall||'').toString().toLowerCase(), a=(d.activityAtFall||'').toString().toLowerCase();
+    return c.includes('toilet') || a.includes('bath') || a.includes('toilet') || a.includes('commode');
+  }).length;
+  const nights=rows.filter(d=>shiftForTime(d.eventTime)==='Nights (2300–0659)').length;
+  const medRisk=rows.filter(d=>(d.causeOfFall||'').toString().toLowerCase().includes('med') || (d.causeOfFall||'').toString().toLowerCase().includes('orthostatic')).length;
+  const mobilityRisk=rows.filter(d=>{
+    const c=(d.causeOfFall||'').toString().toLowerCase(), a=(d.activityAtFall||'').toString().toLowerCase();
+    return c.includes('balance') || c.includes('gait') || a.includes('transfer') || a.includes('ambulat');
+  }).length;
+  const confusionRisk=rows.filter(d=>{
+    const c=(d.causeOfFall||'').toString().toLowerCase(), a=(d.activityAtFall||'').toString().toLowerCase();
+    return c.includes('confusion') || c.includes('altered') || a.includes('attempting') || a.includes('oob');
+  }).length;
+  const equipmentRisk=rows.filter(d=>{
+    const c=(d.causeOfFall||'').toString().toLowerCase();
+    return c.includes('equipment') || c.includes('environment');
+  }).length;
+
+  const unitCounts={};
+  rows.forEach(d=>{ if(d.unit) unitCounts[d.unit]=(unitCounts[d.unit]||0)+1; });
+  const repeatUnits=Object.entries(unitCounts).filter(([,count])=>count>=2).map(([unit,count])=>`${unit} (${count})`);
+
+  const staffCounts={};
+  rows.forEach(d=>{
+    if(d.primaryRN) staffCounts[`RN: ${d.primaryRN.trim()}`]=(staffCounts[`RN: ${d.primaryRN.trim()}`]||0)+1;
+    if(d.primaryUAP) staffCounts[`CA: ${d.primaryUAP.trim()}`]=(staffCounts[`CA: ${d.primaryUAP.trim()}`]||0)+1;
+  });
+  const repeatStaff=Object.entries(staffCounts).filter(([,count])=>count>=2).map(([name,count])=>`${name} (${count})`);
+
+  if(rows.length) add('High', `${rows.length} fall${rows.length!==1?'s':''} in selected 2-week period`, 'Close every fall review with one owner, one due date, one measurable prevention change, and one follow-up audit.', 'Unit leader / ANM', 'Same review day', '100% of reviewed falls have owner + due date documented');
+  if(highRisk) add('High', `${highRisk} high-risk or Morse 45+ event${highRisk!==1?'s':''}`, 'Run a fall-bundle reliability audit on current high-risk patients: alarm, low bed, call light, belongings, footwear, gait belt/walker, signage, and rounding frequency.', 'Charge RN + bedside RN', 'Next 24 hours; repeat daily x14 days', '>=90% bundle reliability on spot checks');
+  if(unassisted) add('High', `${unassisted} unassisted fall${unassisted!==1?'s':''}`, 'Start call-don\'t-fall teach-back during bedside report and hourly rounding; verify patient can state how to call before getting up.', 'RN/CA team', 'Start next shift', 'Teach-back documented or observed on high-risk patients');
+  if(toileting) add('High', `${toileting} toileting/bathroom-related signal${toileting!==1?'s':''}`, 'Create a proactive toileting plan for high-risk patients before handoff, before sleep, after meals, and after diuretics.', 'RN/CA team', 'Next shift', 'Toileting plan visible in report/board for high-risk patients');
+  if(nights) add('Medium', `${nights} night-shift fall${nights!==1?'s':''}`, 'Review 2300-0700 rounding coverage, HS toileting, sleep/pain meds, bed alarms, and room placement for impulsive patients.', 'Night charge RN', 'Tonight and next 14 days', 'Night fall count decreases during next review period');
+  if(medRisk) add('Medium', `${medRisk} medication/orthostatic signal${medRisk!==1?'s':''}`, 'Request provider/pharmacy review for sedatives, antihypertensives, diuretics, pain meds, orthostatic vitals, and mobility timing.', 'RN + provider/pharmacy', 'Within 24 hours of event review', 'Medication/orthostatic plan documented for affected patients');
+  if(mobilityRisk) add('Medium', `${mobilityRisk} mobility, gait, transfer, or balance signal${mobilityRisk!==1?'s':''}`, 'Update mobility level, assist requirement, PT/OT plan, walker/gait belt access, and transfer instructions in report and at bedside.', 'RN + PT/OT + CA', 'Next therapy/shift huddle', 'Mobility plan matches patient board and nursing report');
+  if(confusionRisk) add('Medium', `${confusionRisk} confusion/impulsivity signal${confusionRisk!==1?'s':''}`, 'Screen for delirium contributors, increase reorientation cues, evaluate sitter/video monitor need, and place patient closer to staff when possible.', 'RN + provider + charge', 'Within 24 hours', 'Observation level and delirium plan documented');
+  if(equipmentRisk) add('Medium', `${equipmentRisk} equipment/environment signal${equipmentRisk!==1?'s':''}`, 'Complete a room safety sweep for alarm function, cords/tubing, clutter, lighting, footwear, floor hazards, and bed/chair position.', 'Charge RN + CA', 'Immediately after review', 'Room sweep completed on high-risk rooms each shift');
+  if(huddleMiss) add('High', `${huddleMiss} huddle gap${huddleMiss!==1?'s':''}`, 'Require same-shift post-fall huddle closure with root cause, missed intervention, and prevention owner.', 'Charge RN / ANM', 'Same shift', '100% post-fall huddles completed before shift end');
+  if(docMiss) add('Medium', `${docMiss} post-fall documentation gap${docMiss!==1?'s':''}`, 'Re-educate and audit post-fall vitals, pain reassessment, neuro, skin, and fall flowsheet completion.', 'ANM / educator', 'Next 7 days', '>=95% post-fall documentation completion');
+  if(platoMiss) add('Medium', `${platoMiss} low/missing PLATO signal${platoMiss!==1?'s':''}`, 'Complete targeted PLATO observations with assigned RN/CA and coach missed fall-prevention elements in real time.', 'Leader / PLATO reviewer', 'Within 48 hours', 'Fall-prevention PLATO compliance >=90%');
+  if(repeatUnits.length) add('High', `Repeat unit signal: ${repeatUnits.join(', ')}`, 'Hold a focused unit huddle and pick one PDSA test for the next 14 days based on the top theme.', 'Unit leader + charge nurses', 'Within 48 hours', 'Repeat-unit falls decrease in next 2-week tab');
+  if(repeatStaff.length) add('Medium', `Repeat staff involvement: ${repeatStaff.join(', ')}`, 'Complete non-punitive coaching with assigned staff to identify barriers, resource needs, and one specific practice change.', 'Manager/ANM', 'Within 72 hours', 'Coaching completed and follow-up observation documented');
+  if(!actions.length) add('Standard', 'No dominant pattern in selected period', 'Continue 2-week review, verify fall-bundle reliability, and trend themes against the next period.', 'Unit leader', 'Next review', 'No repeat pattern emerges');
+  return actions;
+}
+function renderReductionActionTable(actions){
+  const colorFor=p=>p==='High'?C.red:p==='Medium'?C.orange:C.teal;
+  return `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#F0F3F8">
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Priority</th>
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Data Trigger</th>
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Action Item</th>
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Owner</th>
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Due</th>
+      <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Measure</th>
+    </tr></thead>
+    <tbody>${actions.map((a,i)=>{
+      const c=colorFor(a.priority);
+      return `<tr style="border-bottom:1px solid #EEF1F6;background:${i%2?'#F7F9FC':'#fff'}">
+        <td style="padding:8px"><span style="background:${c}22;border:1px solid ${c}66;border-radius:4px;padding:2px 8px;color:${c};font-weight:800">${escHtml(a.priority)}</span></td>
+        <td style="padding:8px;color:#1B2A4A;font-weight:700">${escHtml(a.trigger)}</td>
+        <td style="padding:8px;line-height:1.4">${escHtml(a.action)}</td>
+        <td style="padding:8px;color:#1B2A4A">${escHtml(a.owner)}</td>
+        <td style="padding:8px;color:#5E6E8C">${escHtml(a.due)}</td>
+        <td style="padding:8px;color:#5E6E8C">${escHtml(a.measure)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
 function renderBiweeklyFallCard(inc,i){
   const ic=INJC[inc.injuryLevel]||C.muted;
   const rows=answerRows(inc);
@@ -1653,6 +1732,7 @@ function renderBiweeklyReview(){
   const huddlePct=periodRows.length?Math.round(huddles/periodRows.length*100):0;
   const unassisted=periodRows.filter(d=>(d.assisted??'').toString().toLowerCase().includes('no') || (d.assisted??'').toString().toLowerCase().includes('un')).length;
   const periodActions=periodActionItems(periodRows);
+  const reductionActions=fallReductionActionRows(periodRows);
   summaryEl.innerHTML=`
     <div id="biweeklyKPIs" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
       ${[
@@ -1661,6 +1741,11 @@ function renderBiweeklyReview(){
         ['Unassisted',unassisted,'Focus on rounding/call-light',unassisted?C.red:C.green],
         ['Huddle Completion',huddlePct+'%',`${huddles}/${periodRows.length} documented`,huddlePct===100?C.green:huddlePct>=80?C.teal:C.orange],
       ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c};font-size:22px">${v}</div><div class="kpi-sub">${escHtml(s)}</div></div>`).join('')}
+    </div>
+    <div class="card" style="border-top:4px solid ${C.gold};margin-bottom:14px">
+      <div class="card-title">Future Fall Reduction Action Items</div>
+      <div style="font-size:12px;color:#5E6E8C;margin-bottom:10px;line-height:1.45">Generated from the selected 2-week fall data. Use these as the working action-item list for the next review cycle.</div>
+      <div style="overflow-x:auto">${renderReductionActionTable(reductionActions)}</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div class="card">
