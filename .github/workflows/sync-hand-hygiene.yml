@@ -1,6 +1,10 @@
 name: Sync Hand Hygiene Data
 
 on:
+  push:
+    paths:
+      - scripts/sync-hand-hygiene.js
+      - .github/workflows/sync-hand-hygiene.yml
   schedule:
     # Every 30 minutes
     - cron: '*/30 * * * *'
