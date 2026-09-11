@@ -1,4 +1,4 @@
-name: Sync Hand Hygiene Data
+name: Sync Monthly KPI Smartsheet Data
 
 on:
   push:
@@ -26,6 +26,9 @@ jobs:
           HAND_HYGIENE_SHEET_ID: ${{ secrets.SMARTSHEET_HAND_HYGIENE_SHEET_ID }}
           HAND_HYGIENE_REPORT_ID: ${{ secrets.SMARTSHEET_HAND_HYGIENE_REPORT_ID }}
           HAND_HYGIENE_SHEET_NAME: Arnot Hand Hygiene Landing Page
+          PAIN_REASSESSMENT_SHEET_ID: ${{ secrets.SMARTSHEET_PAIN_REASSESSMENT_SHEET_ID }}
+          PAIN_REASSESSMENT_REPORT_ID: ${{ secrets.SMARTSHEET_PAIN_REASSESSMENT_REPORT_ID }}
+          PAIN_REASSESSMENT_SHEET_NAME: Arnot Pain Reassessment Landing Page
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
         run: node scripts/sync-hand-hygiene.js
