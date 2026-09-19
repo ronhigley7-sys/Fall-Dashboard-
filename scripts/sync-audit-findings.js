@@ -189,6 +189,146 @@ function collectTags(row) {
   return [...new Set(tags)];
 }
 
+function isSensitiveColumn(key, title) {
+  const text = `${key} ${title}`.toLowerCase();
+  return (
+    text.includes('patient') ||
+    text.includes('initial') ||
+    text.includes('mrn') ||
+    text.includes('medicalrecord') ||
+    text.includes('medical record') ||
+    text.includes('account') ||
+    text.includes('visit') ||
+    text.includes('room') ||
+    text.includes('comment') ||
+    text.includes('note') ||
+    text.includes('description')
+  );
+}
+
+function valueIsNegative(value) {
+  const text = textValue(value);
+  if (!text) return false;
+  if (['no', 'n', 'false', 'not met', 'fail', 'failed', 'late', 'missing', 'incomplete', 'non-compliant', 'noncompliant', '0'].includes(text)) {
+    return true;
+  }
+  return (
+    text.includes('not met') ||
+    text.includes('not completed') ||
+    text.includes('incomplete') ||
+    text.includes('non-compliant') ||
+    text.includes('non compliant') ||
+    text.includes('noncompliant') ||
+    text.includes('missing') ||
+    text.includes('late') ||
+    text.includes('fail')
+  );
+}
+
+function titleLooksActionable(title, type) {
+  const text = textValue(title);
+  if (!text || text.length < 3) return false;
+  if (type === 'pain') {
+    return (
+      text.includes('reassess') ||
+      text.includes('within') ||
+      text.includes('timeframe') ||
+      text.includes('timely') ||
+      text.includes('compliance') ||
+      text.includes('met') ||
+      text.includes('outcome')
+    );
+  }
+  if (type === 'sitter') {
+    return (
+      text.includes('sitter') ||
+      text.includes('line of sight') ||
+      text.includes('observation') ||
+      text.includes('log') ||
+      text.includes('order') ||
+      text.includes('belonging') ||
+      text.includes('quick tip') ||
+      text.includes('distract') ||
+      text.includes('food') ||
+      text.includes('drink')
+    );
+  }
+  if (type === 'behavioral') {
+    return (
+      text.includes('cssrs') ||
+      text.includes('c-ssrs') ||
+      text.includes('suicide') ||
+      text.includes('behavior') ||
+      text.includes('shift assessment') ||
+      text.includes('assessment') ||
+      text.includes('1:1') ||
+      text.includes('one') ||
+      text.includes('sitter') ||
+      text.includes('log') ||
+      text.includes('belonging') ||
+      text.includes('reassess') ||
+      text.includes('vital') ||
+      text.includes('restraint') ||
+      text.includes('bert')
+    );
+  }
+  return (
+    text.includes('non-compliance') ||
+    text.includes('non compliance') ||
+    text.includes('care plan') ||
+    text.includes('advanced directive') ||
+    text.includes('pain') ||
+    text.includes('missing') ||
+    text.includes('required') ||
+    text.includes('complete') ||
+    text.includes('met') ||
+    text.includes('within')
+  );
+}
+
+function inferNegativeTags(row, type) {
+  const tags = [];
+  const titleByKey = row.__titles || {};
+  for (const [key, value] of Object.entries(row)) {
+    if (key.startsWith('__')) continue;
+    const title = titleByKey[key] || titleCaseFromKey(key);
+    if (isSensitiveColumn(key, title)) continue;
+    if (!titleLooksActionable(title, type)) continue;
+    if (valueIsNegative(value)) tags.push(title);
+  }
+  return tags;
+}
+
+function sourceLooksFindingList(sourceName) {
+  const text = textValue(sourceName);
+  return (
+    text.includes('non-compliance') ||
+    text.includes('non compliance') ||
+    text.includes('noncompliance') ||
+    text.includes('finding') ||
+    text.includes('variance')
+  );
+}
+
+function defaultTagForType(type) {
+  const defaults = {
+    chart: 'Chart audit non-compliance',
+    pain: 'Pain reassessment variance',
+    sitter: 'Sitter audit variance',
+    behavioral: 'Behavioral health audit variance',
+  };
+  return defaults[type] || 'Audit variance';
+}
+
+function tagsForFinding(row, type, sourceName) {
+  const tags = [...collectTags(row), ...inferNegativeTags(row, type)]
+    .map(tag => asText(tag))
+    .filter(valueLooksCategorical);
+  const unique = [...new Set(tags)];
+  if (unique.length) return unique;
+  return sourceLooksFindingList(sourceName) ? [defaultTagForType(type)] : [];
+}
+
 async function smartsheet(path) {
   const response = await fetch(`https://api.smartsheet.com/2.0/${path}`, {
     headers: { Authorization: `Bearer ${SMARTSHEET_TOKEN}` },
@@ -436,7 +576,8 @@ function findingFromRow(row, fallbackType, sourceName, rowId) {
   const type = normalizeType(pick(row, ['Audit Type', 'Type', 'Audit', 'Form', 'Category']) || sourceName, fallbackType);
   const unitText = pick(row, ['Unit', 'Floor', 'Location', 'Department', 'Area', 'Nursing Unit']);
   const context = pick(row, ['Context', 'Shift', 'Room', 'Visit', 'Visit Number']) || unitText;
-  const tags = collectTags(row);
+  const tags = tagsForFinding(row, type, sourceName);
+  if (!tags.length) return null;
   const staff = splitList(pick(row, ['Staff', 'Staff Name', 'Staff Names', 'Employee', 'Employees', 'RN', 'CA', 'Tech']));
   const statusText = textValue(pick(row, ['Status', 'Follow Up Status', 'Resolution Status']));
   const status = (
@@ -452,9 +593,24 @@ function findingFromRow(row, fallbackType, sourceName, rowId) {
     status,
     unit: inferUnit(unitText || context) || null,
     staff_names: staff,
-    tags: tags.length ? tags : ['Shared audit finding'],
+    tags,
     variance_status: null,
   };
+}
+
+async function clearAutomatedFindings() {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/audit_findings?id=like.ss%25`, {
+    method: 'DELETE',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Prefer: 'return=minimal',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Supabase delete ${response.status}: ${await response.text()}`);
+  }
+  return true;
 }
 
 async function upsertFindings(findings) {
@@ -513,12 +669,14 @@ async function main() {
     throw new Error('Smartsheet sources were found, but no dated audit finding rows were mapped. Set AUDIT_SMARTSHEET_SOURCES to the detailed audit source report(s).');
   }
 
+  const automatedRowsCleared = await clearAutomatedFindings();
   const synced = await upsertFindings(unique);
   console.log(JSON.stringify({
     ok: true,
     sources: sourceStats,
     rows: unique.length,
     synced,
+    automatedRowsCleared,
     newest: unique[0] && unique[0].finding_date,
   }, null, 2));
 }
