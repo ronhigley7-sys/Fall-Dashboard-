@@ -655,7 +655,10 @@ async function main() {
     }
     sourceStats.push({
       name: data.name || source.name,
+      auditType: source.auditType,
       type: source.objectType,
+      id: source.objectId,
+      url: `https://app.smartsheet.com/${source.objectType === 'report' ? 'reports' : 'sheets'}/${source.objectId}`,
       rows: data.rows.length,
       mapped,
     });
