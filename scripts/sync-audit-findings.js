@@ -321,12 +321,34 @@ function defaultTagForType(type) {
 }
 
 function tagsForFinding(row, type, sourceName) {
-  const tags = [...collectTags(row), ...inferNegativeTags(row, type)]
+  const explicitReasons = [];
+  const explicit = pick(row, [
+    'Why Missed', 'Reason Missed', 'Reason for Missed Reassessment', 'Reason for Non-Compliance',
+    'Reason for Noncompliance', 'Non-Compliance Reason', 'Noncompliance Reason',
+    'Variance Reason', 'Specific Variance', 'Audit Finding', 'Finding'
+  ]);
+  splitList(explicit, true).forEach(reason => explicitReasons.push(reason));
+  const tags = [...collectTags(row), ...inferNegativeTags(row, type), ...explicitReasons]
     .map(tag => asText(tag))
     .filter(valueLooksCategorical);
   const unique = [...new Set(tags)];
   if (unique.length) return unique;
   return sourceLooksFindingList(sourceName) ? [defaultTagForType(type)] : [];
+}
+
+function collectStaff(row) {
+  const aliases = [
+    'Staff', 'Staff Name', 'Staff Names', 'Employee', 'Employees', 'Employee Name',
+    'RN', 'RN Name', 'Nurse', 'Nurse Name', 'Primary RN', 'Assigned RN', 'Responsible RN',
+    'Audited RN', 'Audited Nurse', 'Audited Staff', 'Caregiver', 'Clinician', 'CA', 'Tech', 'Technician'
+  ];
+  const names = [];
+  for (const alias of aliases) {
+    const value = row[normKey(alias)];
+    if (value === undefined || value === null || !asText(value)) continue;
+    splitList(value).forEach(name => names.push(name));
+  }
+  return [...new Set(names)];
 }
 
 async function smartsheet(path) {
@@ -578,7 +600,7 @@ function findingFromRow(row, fallbackType, sourceName, rowId) {
   const context = pick(row, ['Context', 'Shift', 'Room', 'Visit', 'Visit Number']) || unitText;
   const tags = tagsForFinding(row, type, sourceName);
   if (!tags.length) return null;
-  const staff = splitList(pick(row, ['Staff', 'Staff Name', 'Staff Names', 'Employee', 'Employees', 'RN', 'CA', 'Tech']));
+  const staff = collectStaff(row);
   const statusText = textValue(pick(row, ['Status', 'Follow Up Status', 'Resolution Status']));
   const status = (
     statusText.includes('closed') ||
