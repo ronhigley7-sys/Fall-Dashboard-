@@ -177,7 +177,7 @@ body{font-family:'Segoe UI',sans-serif;background:#F0F3F8;color:#1B2A4A;font-siz
 
       <!-- Quick stats -->
       <div>
-        <div id="platoKPIs" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px"></div>
+        <div id="platoKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px"></div>
       </div>
     </div>
 
@@ -1104,47 +1104,63 @@ function mapPlatoRow(raw){
     if(!k||typeof k!=='string') continue;
     o[k.trim()] = (v==null||v==='') ? '' : String(v).trim();
   }
+  function pickField(names){
+    for(const name of names){
+      const value=o[name];
+      if(value!=null && String(value).trim()) return String(value).trim();
+    }
+    return '';
+  }
 
-  // Unit — prefer "Unit (AH)" over "Nurse Home Unit"
-  const unit    = normUnit((o['Unit (AH)']||o['Nurse Home Unit']||o['Unit']||o['unit']||'').toString().trim());
+  const unit    = normUnit((pickField(['Unit (AH)','Nurse Home Unit','Unit','unit'])||'').toString().trim());
+  const date    = (pickField(["Today's Date","Today s Date",'Date','Rounding Date'])||'').toString().trim();
 
-  // Date — "Today's Date" is the rounding date
-  const date    = (o["Today's Date"]||o["Today s Date"]||o['Date']||o['Rounding Date']||'').toString().trim();
+  const rn1     = (pickField(['Nurse assigned to patient','Nurse Assigned to Patient','Primary RN','RN'])||'').toString().trim();
+  const rn2     = (pickField(['Second Nurse Assigned to Patient','Second Nurse'])||'').toString().trim();
+  const rn2Unit = normUnit((pickField(['Second Nurse Home Unit','Second Nurse Unit'])||'').toString().trim());
+  const ca      = (pickField(['CA / PCT / EMA Assigned to Patient','CA/PCT/EMA Assigned to Patient','CA','PCT'])||'').toString().trim();
+  const caUnit  = normUnit((pickField(['CA / PCT / EMA Home Unit','CA Home Unit'])||'').toString().trim());
+  const nurseHomeUnit = normUnit((pickField(['Nurse Home Unit'])||'').toString().trim());
 
-  // Staff — "Nurse assigned to patient" is primary RN (NOT the "Primary" column which is row ID)
-  const rn1     = (o['Nurse assigned to patient']||o['Nurse Assigned to Patient']||o['Primary RN']||o['RN']||'').toString().trim();
-  const rn2     = (o['Second Nurse Assigned to Patient']||o['Second Nurse']||'').toString().trim();
-  const ca      = (o['CA / PCT / EMA Assigned to Patient']||o['CA/PCT/EMA Assigned to Patient']||o['CA']||o['PCT']||'').toString().trim();
-  const caUnit  = normUnit((o['CA / PCT / EMA Home Unit']||o['CA Home Unit']||'').toString().trim());
-  const nurseHomeUnit = normUnit((o['Nurse Home Unit']||'').toString().trim());
+  const hapiRaw   = (pickField(['HAPI Compliance','HAPI'])||'').toString().trim();
+  const fallRaw   = (pickField(['Fall Compliance','Falls Compliance','Fall Prevention Compliance'])||'').toString().trim();
+  const cautiRaw  = (pickField(['CAUTI Compliance','CAUTI'])||'').toString().trim();
+  const clabsiRaw = (pickField(['CLABSI Compliance','CLABSI'])||'').toString().trim();
+  const medicationRaw = (pickField([
+    'Medication Compliance','Medications Compliance','Medication Safety Compliance',
+    'Medication Reconciliation Compliance','Med Compliance','Meds Compliance',
+    'Medication','Medications'
+  ])||'').toString().trim();
 
-  // Compliance — "Compliant" | "Not Compliant" | ""
-  const hapiRaw   = (o['HAPI Compliance']||'').toString().trim();
-  const fallRaw   = (o['Fall Compliance']||'').toString().trim();
-  const cautiRaw  = (o['CAUTI Compliance']||'').toString().trim();
-  const clabsiRaw = (o['CLABSI Compliance']||'').toString().trim();
-
-  function toScore(v){ return v==='Compliant'?1:v==='Not Compliant'?0:null; }
-  const scores = [hapiRaw,fallRaw,cautiRaw,clabsiRaw].map(toScore).filter(s=>s!==null);
+  function toScore(v){
+    const t=(v||'').toString().trim().toLowerCase();
+    if(!t) return null;
+    if(t.includes('not compliant')||t.includes('non-compliant')||t.includes('noncompliant')||t==='no'||t==='incomplete') return 0;
+    if(t==='compliant'||t==='yes'||t==='complete'||t==='completed') return 1;
+    return null;
+  }
+  const scores = [hapiRaw,fallRaw,cautiRaw,clabsiRaw,medicationRaw].map(toScore).filter(s=>s!==null);
   const overallPct     = scores.length>0 ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*100) : null;
   const fallCompliant  = toScore(fallRaw);
+  const medicationCompliant = toScore(medicationRaw);
 
-  // Month key for grouping: parse MM/DD/YY or YYYY-MM-DD
   let month='';
   if(date){
     const d=new Date(date);
-    if(!isNaN(d)) month=d.toISOString().slice(0,7); // YYYY-MM
+    if(!isNaN(d)) month=d.toISOString().slice(0,7);
   }
 
   return {
     unit, nurseHomeUnit, date, month,
-    staffName: rn1,         // primary nurse assigned to patient
-    rn2, ca, caUnit,
+    staffName: rn1,
+    rn2, rn2Unit, ca, caUnit,
     hapiCompliance:   hapiRaw,
     fallCompliance:   fallRaw,
     cautiCompliance:  cautiRaw,
     clabsiCompliance: clabsiRaw,
+    medicationCompliance: medicationRaw,
     fallCompliant,
+    medicationCompliant,
     overallPct,
     compliancePct:    overallPct,
     totalRounds:      scores.length,
@@ -1174,6 +1190,7 @@ async function savePlatoToSupabase(rows){
       fall_compliance: r.fallCompliance||null,
       cauti_compliance: r.cautiCompliance||null,
       clabsi_compliance: r.clabsiCompliance||null,
+      medication_compliance: r.medicationCompliance||null,
       total_rounds: r.totalRounds||null,
       completed_rounds: r.completedRounds||null,
       compliance_pct: r.compliancePct||null,
@@ -1187,8 +1204,6 @@ async function savePlatoToSupabase(rows){
 async function loadPlatoFromSupabase(){
   if(!sbClient) return;
   try{
-    // Supabase caps a plain select at 1000 rows — page through with .range()
-    // to pull every observation regardless of dataset size.
     const pageSize = 1000;
     let from = 0;
     let all = [];
@@ -1201,9 +1216,19 @@ async function loadPlatoFromSupabase(){
       from += pageSize;
     }
     if(!all.length) return;
+    function toScore(v){
+      const t=(v||'').toString().trim().toLowerCase();
+      if(!t) return null;
+      if(t.includes('not compliant')||t.includes('non-compliant')||t.includes('noncompliant')||t==='no'||t==='incomplete') return 0;
+      if(t==='compliant'||t==='yes'||t==='complete'||t==='completed') return 1;
+      return null;
+    }
     platoData = all.map(r=>{
-      const scores=[r.hapi_compliance,r.fall_compliance,r.cauti_compliance,r.clabsi_compliance]
-        .map(v=>v==='Compliant'?1:v==='Not Compliant'?0:null).filter(s=>s!==null);
+      const scores=[r.hapi_compliance,r.fall_compliance,r.cauti_compliance,r.clabsi_compliance,r.medication_compliance]
+        .map(toScore).filter(s=>s!==null);
+      const calculatedPct = scores.length ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*100) : null;
+      const savedPct = r.compliance_pct==null ? null : Number(r.compliance_pct);
+      const compliancePct = Number.isFinite(savedPct) ? savedPct : calculatedPct;
       return {
         unit: normUnit(r.unit)||'', nurseHomeUnit: normUnit(r.nurse_home_unit)||'',
         date: r.observation_date||'', month: r.month||'',
@@ -1211,10 +1236,12 @@ async function loadPlatoFromSupabase(){
         ca: r.ca_name||'', caUnit: normUnit(r.ca_unit)||'',
         hapiCompliance: r.hapi_compliance||'', fallCompliance: r.fall_compliance||'',
         cautiCompliance: r.cauti_compliance||'', clabsiCompliance: r.clabsi_compliance||'',
-        fallCompliant: r.fall_compliance==='Compliant'?1:r.fall_compliance==='Not Compliant'?0:null,
-        overallPct: r.compliance_pct, compliancePct: r.compliance_pct,
-        totalRounds: r.total_rounds||scores.length||0,
-        completedRounds: r.completed_rounds||scores.filter(s=>s===1).length||0,
+        medicationCompliance: r.medication_compliance||'',
+        fallCompliant: toScore(r.fall_compliance),
+        medicationCompliant: toScore(r.medication_compliance),
+        overallPct: compliancePct, compliancePct,
+        totalRounds: Number(r.total_rounds)||scores.length||0,
+        completedRounds: Number(r.completed_rounds)||scores.filter(s=>s===1).length||0,
       };
     }).filter(d=>!d.unit||isAllowedUnit(d.unit));
     renderPlato();
@@ -1234,26 +1261,31 @@ function renderPlato(){
   }
 
   const totalRounds  = pd.length;
-  const units        = [...new Set(platoData.map(d=>d.unit).filter(Boolean))];
-  const allStaff     = [...new Set([...platoData.map(d=>d.staffName),...platoData.map(d=>d.rn2),...platoData.map(d=>d.ca)].filter(Boolean))];
+  const units        = [...new Set(pd.map(d=>d.unit).filter(Boolean))];
+  const allStaff     = [...new Set([...pd.map(d=>d.staffName),...pd.map(d=>d.rn2),...pd.map(d=>d.ca)].filter(Boolean))];
+  const fallData     = typeof getF === 'function' ? getF() : (Array.isArray(allData)?allData:[]);
+  const fallsInView  = fallData.length;
 
-  // Fall compliance specifically
   const fallRows     = pd.filter(d=>d.fallCompliant!==null);
   const fallCompPct  = fallRows.length ? Math.round(fallRows.filter(d=>d.fallCompliant===1).length/fallRows.length*100) : 0;
   const notCompliant = fallRows.filter(d=>d.fallCompliant===0).length;
 
-  // Overall across all 4 metrics
+  const medRows      = pd.filter(d=>d.medicationCompliant!==null);
+  const medCompPct   = medRows.length ? Math.round(medRows.filter(d=>d.medicationCompliant===1).length/medRows.length*100) : null;
+  const medNotComp   = medRows.filter(d=>d.medicationCompliant===0).length;
+
   const withPct      = pd.filter(d=>d.compliancePct!==null);
   const avgComp      = withPct.length ? Math.round(withPct.reduce((s,d)=>s+d.compliancePct,0)/withPct.length) : 0;
+  const medColor     = medCompPct===null?C.muted:medCompPct>=90?C.green:medCompPct>=80?C.teal:C.orange;
 
   document.getElementById('platoKPIs').innerHTML = [
-    ['Total Rounds', totalRounds.toLocaleString(), 'Rounding events', C.navy],
-    ['Fall Compliance', fallCompPct+'%', `${notCompliant} not compliant`, fallCompPct>=90?C.green:fallCompPct>=80?C.teal:C.red],
-    ['Overall Compliance', avgComp+'%', 'HAPI+Fall+CAUTI+CLABSI avg', avgComp>=90?C.green:avgComp>=80?C.teal:C.orange],
-    ['Units / Staff', units.length+' / '+allStaff.length, 'tracked', C.navy],
+    ['Total Rounds', totalRounds.toLocaleString(), `${units.length} unit(s) · ${allStaff.length} staff`, C.navy],
+    ['Fall Compliance', fallCompPct+'%', `${notCompliant} fall-prevention misses · ${fallsInView} falls`, fallCompPct>=90?C.green:fallCompPct>=80?C.teal:C.red],
+    ['Medication Compliance', medCompPct===null?'—':medCompPct+'%', medCompPct===null?'No medication field loaded yet':`${medNotComp} medication misses`, medColor],
+    ['Overall Compliance', avgComp+'%', 'HAPI+Fall+CAUTI+CLABSI+Meds avg', avgComp>=90?C.green:avgComp>=80?C.teal:C.orange],
+    ['Compliance / Falls', `${avgComp}% / ${fallsInView}`, 'Avg PLATO compliance with fall count', fallsInView?C.orange:C.green],
   ].map(([l,v,s,c])=>`<div class="kpi" style="border-top:4px solid ${c}"><div class="kpi-label">${l}</div><div class="kpi-value" style="color:${c};font-size:22px">${v}</div><div class="kpi-sub">${s}</div></div>`).join('');
 
-  // By-unit FALL compliance chart
   const unitMap={};
   pd.forEach(d=>{
     if(!d.unit) return;
@@ -1278,7 +1310,6 @@ function renderPlato(){
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw}% fall compliant`}}},
       scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',font:{size:11}}},x:{ticks:{font:{size:10}}}},responsive:true,maintainAspectRatio:false}});
 
-  // Trend by month (fall compliance)
   const monthMap={};
   pd.forEach(d=>{
     const m=d.month||'Unknown'; if(!m) return;
@@ -1294,17 +1325,17 @@ function renderPlato(){
     data:{labels:mLabels,datasets:[{label:'Fall Compliance %',data:mVals,borderColor:C.teal,backgroundColor:C.teal+'22',borderWidth:2.5,pointRadius:4,fill:true,tension:.3}]},
     options:{plugins:{legend:{display:false}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',font:{size:11}}},x:{ticks:{font:{size:11}}}},responsive:true,maintainAspectRatio:false}});
 
-  // Staff table — aggregate each nurse's fall compliance rate
   const staffMap={};
   function addStaff(name,unit,row){
     if(!name) return;
-    if(!staffMap[name]) staffMap[name]={unit,yes:0,no:0,total:0,hapiNo:0,cautiNo:0,clabsiNo:0};
+    if(!staffMap[name]) staffMap[name]={unit,yes:0,no:0,total:0,hapiNo:0,cautiNo:0,clabsiNo:0,medNo:0};
     staffMap[name].total++;
     if(row.fallCompliant===1) staffMap[name].yes++;
     else if(row.fallCompliant===0) staffMap[name].no++;
     if(row.hapiCompliance==='Not Compliant') staffMap[name].hapiNo++;
     if(row.cautiCompliance==='Not Compliant') staffMap[name].cautiNo++;
     if(row.clabsiCompliance==='Not Compliant') staffMap[name].clabsiNo++;
+    if(row.medicationCompliance==='Not Compliant') staffMap[name].medNo++;
   }
   pd.forEach(d=>{
     addStaff(d.staffName, d.unit, d);
@@ -1312,36 +1343,50 @@ function renderPlato(){
     addStaff(d.ca, d.caUnit||d.unit, d);
   });
 
+  function staffFallsInView(name){
+    const n=normName(name);
+    if(!n) return 0;
+    return fallData.filter(d=>normName(d.primaryRN)===n||normName(d.primaryUAP)===n).length;
+  }
+
   const staffRows=Object.entries(staffMap).map(([name,s])=>{
     const t=s.yes+s.no;
-    return {name, unit:s.unit, fallPct:t>0?Math.round(s.yes/t*100):null, fallNo:s.no, hapiNo:s.hapiNo, cautiNo:s.cautiNo, clabsiNo:s.clabsiNo, total:s.total};
-  }).sort((a,b)=>(a.fallPct??101)-(b.fallPct??101));
+    return {name, unit:s.unit, fallPct:t>0?Math.round(s.yes/t*100):null, fallNo:s.no, hapiNo:s.hapiNo, cautiNo:s.cautiNo, clabsiNo:s.clabsiNo, medNo:s.medNo, falls:staffFallsInView(name), total:s.total};
+  }).sort((a,b)=>(a.fallPct??101)-(b.fallPct??101) || b.falls-a.falls);
 
   document.getElementById('platoStaffTable').innerHTML=`
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:860px">
       <thead><tr style="background:#F0F3F8">
         <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Staff</th>
         <th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Unit</th>
         <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall Compliance</th>
-        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Not Compliant</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fall NC</th>
         <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">HAPI NC</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Meds NC</th>
         <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">CAUTI NC</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">CLABSI NC</th>
+        <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Falls</th>
         <th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Rounds</th>
       </tr></thead>
       <tbody>${staffRows.map((s,i)=>{
         const c=s.fallPct===null?C.muted:s.fallPct>=90?C.green:s.fallPct>=80?C.teal:s.fallPct>=70?C.orange:C.red;
-        const lbl=s.fallPct===null?'No data':s.fallPct>=90?'✅ Excellent':s.fallPct>=80?'👍 Good':s.fallPct>=70?'⚠ Monitor':'🔴 At Risk';
+        const lbl=s.fallPct===null?'No data':s.fallPct>=90?'Excellent':s.fallPct>=80?'Good':s.fallPct>=70?'Monitor':'At Risk';
         return `<tr style="background:${i%2?'#F7F9FC':'#fff'}">
           <td style="padding:8px;font-weight:600">${s.name}</td>
           <td style="padding:8px;color:#5E6E8C;font-size:11px">${s.unit||'—'}</td>
           <td style="padding:8px;text-align:center"><div style="display:inline-block;background:${c}22;border:1px solid ${c}55;border-radius:4px;padding:2px 10px;color:${c};font-weight:700">${s.fallPct!==null?s.fallPct+'%':'—'}</div></td>
           <td style="padding:8px;text-align:center;color:${s.fallNo>0?C.red:C.muted};font-weight:${s.fallNo>0?700:400}">${s.fallNo||0}</td>
           <td style="padding:8px;text-align:center;color:${s.hapiNo>0?C.orange:C.muted}">${s.hapiNo||0}</td>
+          <td style="padding:8px;text-align:center;color:${s.medNo>0?C.orange:C.muted};font-weight:${s.medNo>0?700:400}">${s.medNo||0}</td>
           <td style="padding:8px;text-align:center;color:${s.cautiNo>0?C.orange:C.muted}">${s.cautiNo||0}</td>
+          <td style="padding:8px;text-align:center;color:${s.clabsiNo>0?C.orange:C.muted}">${s.clabsiNo||0}</td>
+          <td style="padding:8px;text-align:center;color:${s.falls>0?C.red:C.muted};font-weight:${s.falls>0?800:400}">${s.falls||0}</td>
           <td style="padding:8px;text-align:center;color:#5E6E8C">${s.total}</td>
-        </tr><tr style="background:${i%2?'#F7F9FC':'#fff'}"><td colspan="7" style="padding:0 8px 6px 8px;font-size:11px;color:#5E6E8C">${lbl}</td></tr>`;
+        </tr><tr style="background:${i%2?'#F7F9FC':'#fff'}"><td colspan="10" style="padding:0 8px 6px 8px;font-size:11px;color:#5E6E8C">${lbl}</td></tr>`;
       }).join('')}</tbody>
-    </table>`;
+    </table>
+    </div>`;
 }
 
 // ── Render Correlation tab ────────────────────────────────────────────
