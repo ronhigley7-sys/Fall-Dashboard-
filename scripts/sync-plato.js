@@ -32,6 +32,12 @@ const FIELD_MAP = {
   'Fall Compliance': { col: 'fall_compliance', type: 'text' },
   'CAUTI Compliance': { col: 'cauti_compliance', type: 'text' },
   'CLABSI Compliance': { col: 'clabsi_compliance', type: 'text' },
+  'Medication Compliance': { col: 'medication_compliance', type: 'text' },
+  'Medications Compliance': { col: 'medication_compliance', type: 'text' },
+  'Medication Safety Compliance': { col: 'medication_compliance', type: 'text' },
+  'Medication Reconciliation Compliance': { col: 'medication_compliance', type: 'text' },
+  'Med Compliance': { col: 'medication_compliance', type: 'text' },
+  'Meds Compliance': { col: 'medication_compliance', type: 'text' },
   'Nurse assigned to patient': { col: 'staff_name', type: 'text' },
   'Second Nurse Assigned to Patient': { col: 'second_nurse', type: 'text' },
   'Second Nurse Home Unit': { col: 'second_nurse_unit', type: 'text' },
@@ -90,7 +96,9 @@ function buildPayload(columns, rows) {
 
     const record = { smartsheet_row_id: row.id };
     for (const [title, { col, type }] of Object.entries(FIELD_MAP)) {
-      record[col] = coerce(type, cellsByTitle[title]);
+      const value = coerce(type, cellsByTitle[title]);
+      if (value !== null && value !== '') record[col] = value;
+      else if (!(col in record)) record[col] = null;
     }
 
     if (!record.observation_date) {
@@ -105,6 +113,7 @@ function buildPayload(columns, rows) {
       record.fall_compliance,
       record.cauti_compliance,
       record.clabsi_compliance,
+      record.medication_compliance,
     ]
       .map((v) => (v === 'Compliant' ? 1 : v === 'Not Compliant' ? 0 : null))
       .filter((v) => v !== null);
