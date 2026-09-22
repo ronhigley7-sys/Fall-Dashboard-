@@ -37,6 +37,44 @@
     const count=staffYtdCount(name);
     return `${role}: ${name} · ${count} fall${count===1?'':'s'} YTD`;
   }
+
+  function zoomToScore(value){
+  const t=(value||'').toString().trim().toLowerCase();
+  if(!t) return null;
+  if(t.includes('not compliant')||t.includes('non-compliant')||t.includes('noncompliant')||t==='no'||t==='incomplete') return 0;
+  if(t==='compliant'||t==='yes'||t==='complete'||t==='completed') return 1;
+  return null;
+}
+
+  function zoomPct(values){
+  const scores=values.map(zoomToScore).filter(v=>v!==null);
+  return scores.length ? Math.round(scores.filter(v=>v===1).length/scores.length*100) : null;
+}
+
+  function staffPlatoSummary(role,name,field){
+  if(role==='UAP/CA'&&noCANoted(name)) return 'UAP/CA: no CA documented';
+  const target=normStaffName(name);
+  if(!target) return role+': no staff documented';
+  const rows=(Array.isArray(platoData)?platoData:[]).filter(d=>normStaffName(d[field])===target);
+  const falls=staffYtdCount(name);
+  if(!rows.length) return `${role} ${name}: no PLATO observations loaded · ${falls} fall${falls===1?'':'s'} YTD`;
+  const pctRows=rows.filter(d=>d.compliancePct!=null&&!isNaN(d.compliancePct));
+  const overall=pctRows.length?Math.round(pctRows.reduce((s,d)=>s+Number(d.compliancePct),0)/pctRows.length):null;
+  const fallPct=zoomPct(rows.map(d=>d.fallCompliance));
+  const medPct=zoomPct(rows.map(d=>d.medicationCompliance));
+  const parts=[`${role} ${name}: ${overall==null?'No overall %':overall+'% overall'} (${rows.length} obs)`];
+  if(fallPct!=null) parts.push(`${fallPct}% fall prevention`);
+  if(medPct!=null) parts.push(`${medPct}% medications`);
+  parts.push(`${falls} fall${falls===1?'':'s'} YTD`);
+  return parts.join(' · ');
+}
+
+  function platoTeamSummary(inc){
+  return [
+    staffPlatoSummary('RN',inc.primaryRN,'staffName'),
+    staffPlatoSummary('UAP/CA',inc.primaryUAP,'ca')
+  ].filter(Boolean).join(' | ');
+}
   function check(label,value){
     const t=(value==null?'':String(value)).trim().toLowerCase();
     const ok=!!t&&(t.includes('complet')||t==='yes');
@@ -66,7 +104,7 @@
     const pct=r.length?Math.round(done/r.length*100):0;document.getElementById('zoomProgressBar').style.width=pct+'%';document.getElementById('zoomProgressText').textContent=`${done} / ${r.length} reviewed`;document.getElementById('zoomReviewSubtitle').textContent=`Grouped by unit, then date · ${typeof fUnit!=='undefined'&&fUnit!=='ALL'?fUnit:'All units'} · ${typeof fMonth!=='undefined'&&fMonth!=='ALL'?fMonth:'All months'}`;
     if(!r.length){card.innerHTML='<div class="card" style="text-align:center;padding:40px;color:#5E6E8C">No incidents match the current filters.</div>';queue.innerHTML='';return;}
     const inc=r[reviewIndex],isDone=reviewed.has(key(inc)),summary=typeof generateSummary==='function'?generateSummary(inc,reviewIndex):`${inc.unit||''} ${inc.eventDate||''} ${inc.causeOfFall||''}`,injuryColor=(typeof INJC!=='undefined'&&INJC[inc.injuryLevel])||'#5E6E8C';
-    const discussion=[['What happened?',inc.eventDescription||`${inc.activityAtFall||'Activity not documented'} · ${inc.causeOfFall||'Cause not documented'}`],['Immediate injury / outcome',inc.injuryLevel||'Not documented'],['Risk picture',`${inc.fallRiskLevel||'Risk level not documented'}${inc.morseScore?' · Morse '+inc.morseScore:''}${inc.jhHlmScore?' · JH-HLM '+inc.jhHlmScore:''}`],['Staff involved',`${staffLabel('RN',inc.primaryRN)} · ${staffLabel('UAP/CA',inc.primaryUAP)}`],['Recommendations / action',inc.recommendations||inc.pertinentNotes||'No recommendation documented']];
+    const discussion=[['What happened?',inc.eventDescription||`${inc.activityAtFall||'Activity not documented'} · ${inc.causeOfFall||'Cause not documented'}`],['Immediate injury / outcome',inc.injuryLevel||'Not documented'],['Risk picture',`${inc.fallRiskLevel||'Risk level not documented'}${inc.morseScore?' · Morse '+inc.morseScore:''}${inc.jhHlmScore?' · JH-HLM '+inc.jhHlmScore:''}`],['Staff involved',`${staffLabel('RN',inc.primaryRN)} · ${staffLabel('UAP/CA',inc.primaryUAP)}`],['PLATO compliance / falls',platoTeamSummary(inc)],['Recommendations / action',inc.recommendations||inc.pertinentNotes||'No recommendation documented']];
     card.innerHTML=`<div class="slide" style="border:2px solid ${isDone?'#27AE60':'#D0DAE8'}"><div class="slide-hdr" style="padding:14px 16px"><div class="slide-num" style="background:${injuryColor};width:38px;height:38px">${reviewIndex+1}</div><div class="slide-hdr-text"><div class="slide-title" style="font-size:16px">${inc.unit||'—'} · ${inc.eventDate||'—'} ${inc.eventTime||''}</div><div class="slide-sub">${inc.patientInitials||'—'} · ${inc.injuryLevel||'Unknown injury'} · ${inc.causeOfFall||'Cause not documented'}</div></div><button id="zoomMarkBtn" style="border-radius:6px;padding:8px 12px;font-weight:800;cursor:pointer;background:${isDone?'#27AE60':'#fff'};color:${isDone?'#fff':'#27AE60'};border:1px solid #27AE60;white-space:nowrap">${isDone?'✓ Reviewed':'Mark Reviewed'}</button></div><div style="background:#EEF6FF;border-bottom:1px solid #C8DDEF;padding:14px 16px"><div style="font-size:9px;color:#253660;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Meeting Summary</div><div style="font-size:13px;line-height:1.65">${summary}</div></div><div class="slide-body" style="grid-template-columns:1.15fr .85fr"><div><div style="font-size:10px;color:#5E6E8C;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Discussion Guide</div>${discussion.map(x=>`<div class="rec-box" style="margin-bottom:8px"><div class="rec-title">${x[0]}</div><div class="rec-text">${x[1]}</div></div>`).join('')}<div class="rec-box" style="background:#FFF9E8;border-color:#E2C46A"><div class="rec-title">Questions for the Team</div><div class="rec-text">What could have prevented this fall? Was the prevention plan in place? What should we repeat, change, or escalate? Who owns the follow-up action?</div></div></div><div><div style="font-size:10px;color:#5E6E8C;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Post-Fall Checklist</div>${check('Post-fall vitals',inc.postFallVitals)}${check('Pain assessment',inc.painAssessment)}${check('Neuro assessment',inc.neuroAssessment)}${check('Skin assessment',inc.skinAssessment)}${check('Fall log flowsheet',inc.fallLogFlowsheet)}${check('Huddle completed',inc.huddleCompleted)}<div style="margin-top:14px;padding:10px;border-radius:6px;background:#F7F9FC;border:1px solid #D0DAE8"><div style="font-size:10px;font-weight:800;color:#5E6E8C;text-transform:uppercase;margin-bottom:5px">RL Status</div><div style="font-size:13px;font-weight:800;color:${(inc.rlEntered||'').toString().toLowerCase().includes('yes')?'#27AE60':'#C0392B'}">${inc.rlEntered||'Not documented'}</div></div></div></div></div>`;document.getElementById('zoomMarkBtn').onclick=toggle;
     const groups=[];r.forEach((x,i)=>{const unit=x.unit||'Unknown';let g=groups.find(z=>z.unit===unit);if(!g){g={unit,items:[]};groups.push(g);}g.items.push({x,i});});
     queue.innerHTML=`<div class="card-title">Meeting Queue — Unit by Unit</div>${groups.map(g=>`<div style="margin:12px 0"><div style="font-size:11px;font-weight:900;color:#1B2A4A;margin-bottom:6px">${g.unit}</div><div style="display:flex;gap:7px;flex-wrap:wrap">${g.items.map(({x,i})=>{const d=reviewed.has(key(x)),a=i===reviewIndex;return `<button data-zi="${i}" title="${x.eventDate||''} ${x.eventTime||''}" style="cursor:pointer;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:800;border:1px solid ${a?'#1B2A4A':d?'#27AE60':'#D0DAE8'};background:${a?'#1B2A4A':d?'#EAF8EF':'#fff'};color:${a?'#fff':d?'#27AE60':'#1B2A4A'}">${d?'✓ ':''}${x.eventDate||i+1}</button>`;}).join('')}</div></div>`).join('')}`;queue.querySelectorAll('[data-zi]').forEach(b=>b.onclick=()=>jump(parseInt(b.dataset.zi,10)));
