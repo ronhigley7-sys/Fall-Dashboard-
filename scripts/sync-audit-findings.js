@@ -635,18 +635,16 @@ function findingFromRow(row, fallbackType, sourceName, rowId, rowNumber) {
 async function loadExistingAutomatedFields() {
   const existing = [];
   const pageSize = 1000;
-  let start = 0;
+  let offset = 0;
+  const preserveFilter = encodeURIComponent('(staff_names.neq.[],variance_status.not.is.null,status.eq.closed)');
 
   while (true) {
-    const end = start + pageSize - 1;
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/audit_findings?id=like.ss%25&select=id,status,staff_names,variance_status&order=id.asc&limit=${pageSize}`,
+      `${SUPABASE_URL}/rest/v1/audit_findings?id=like.ss%25&select=id,status,staff_names,variance_status&or=${preserveFilter}&order=id.asc&limit=${pageSize}&offset=${offset}`,
       {
         headers: {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${SUPABASE_KEY}`,
-          'Range-Unit': 'items',
-          Range: `${start}-${end}`,
         },
       },
     );
@@ -656,11 +654,11 @@ async function loadExistingAutomatedFields() {
 
     const page = await response.json();
     existing.push(...page);
-    start += page.length;
+    offset += page.length;
     const range = response.headers.get('content-range') || '';
     const totalPart = range.slice(range.lastIndexOf('/') + 1);
     const total = totalPart && totalPart !== '*' ? Number(totalPart) : null;
-    if (!page.length || (total !== null && start >= total) || (total === null && page.length < pageSize)) break;
+    if (!page.length || (total !== null && offset >= total) || (total === null && page.length < pageSize)) break;
   }
 
   return existing;
