@@ -602,6 +602,7 @@ function findingFromRow(row, fallbackType, sourceName, rowId, rowNumber) {
   if (!tags.length) return null;
   const staff = collectStaff(row);
   const statusText = textValue(pick(row, ['Status', 'Follow Up Status', 'Resolution Status']));
+  const sourceHasStatus = Boolean(statusText);
   const status = (
     statusText.includes('closed') ||
     statusText.includes('complete') ||
@@ -622,12 +623,80 @@ function findingFromRow(row, fallbackType, sourceName, rowId, rowNumber) {
     audit_type: type,
     finding_date: date,
     status,
+    _sourceStatusPresent: sourceHasStatus,
     unit: inferUnit(unitText || context) || null,
     staff_names: staff,
     tags,
     variance_status: null,
     audit_line_number: auditLineNumber || null,
   };
+}
+
+async function loadExistingAutomatedFields() {
+  const existing = [];
+  const pageSize = 1000;
+  let start = 0;
+
+  while (true) {
+    const end = start + pageSize - 1;
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/audit_findings?id=like.ss%25&select=id,status,staff_names,variance_status&order=id.asc&limit=${pageSize}`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          'Range-Unit': 'items',
+          Range: `${start}-${end}`,
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Supabase read existing audit findings ${response.status}: ${await response.text()}`);
+    }
+
+    const page = await response.json();
+    existing.push(...page);
+    start += page.length;
+    const range = response.headers.get('content-range') || '';
+    const totalPart = range.slice(range.lastIndexOf('/') + 1);
+    const total = totalPart && totalPart !== '*' ? Number(totalPart) : null;
+    if (!page.length || (total !== null && start >= total) || (total === null && page.length < pageSize)) break;
+  }
+
+  return existing;
+}
+
+function mergeExistingTrackerFields(findings, existingRows) {
+  const existingById = new Map(existingRows.map(row => [row.id, row]));
+  let preservedStaffAssignments = 0;
+  let preservedVarianceStatuses = 0;
+  let preservedFollowUpStatuses = 0;
+
+  const merged = findings.map(sourceFinding => {
+    const { _sourceStatusPresent, ...finding } = sourceFinding;
+    const previous = existingById.get(finding.id);
+    if (!previous) return finding;
+
+    const sourceStaff = Array.isArray(finding.staff_names) ? finding.staff_names : [];
+    const previousStaff = Array.isArray(previous.staff_names) ? previous.staff_names : [];
+    const staffNames = sourceStaff.length ? sourceStaff : previousStaff;
+    if (!sourceStaff.length && previousStaff.length) preservedStaffAssignments += 1;
+
+    const varianceStatus = finding.variance_status || previous.variance_status || null;
+    if (!finding.variance_status && previous.variance_status) preservedVarianceStatuses += 1;
+
+    const status = _sourceStatusPresent ? finding.status : (previous.status || finding.status);
+    if (!_sourceStatusPresent && previous.status && previous.status !== finding.status) preservedFollowUpStatuses += 1;
+
+    return {
+      ...finding,
+      staff_names: staffNames,
+      variance_status: varianceStatus,
+      status,
+    };
+  });
+
+  return { findings: merged, preservedStaffAssignments, preservedVarianceStatuses, preservedFollowUpStatuses };
 }
 
 async function clearAutomatedFindings() {
@@ -704,14 +773,19 @@ async function main() {
     throw new Error('Smartsheet sources were found, but no dated audit finding rows were mapped. Set AUDIT_SMARTSHEET_SOURCES to the detailed audit source report(s).');
   }
 
+  const existingRows = await loadExistingAutomatedFields();
+  const merged = mergeExistingTrackerFields(unique, existingRows);
   const automatedRowsCleared = await clearAutomatedFindings();
-  const synced = await upsertFindings(unique);
+  const synced = await upsertFindings(merged.findings);
   console.log(JSON.stringify({
     ok: true,
     sources: sourceStats,
     rows: unique.length,
     synced,
     automatedRowsCleared,
+    preservedStaffAssignments: merged.preservedStaffAssignments,
+    preservedVarianceStatuses: merged.preservedVarianceStatuses,
+    preservedFollowUpStatuses: merged.preservedFollowUpStatuses,
     newest: unique[0] && unique[0].finding_date,
   }, null, 2));
 }
