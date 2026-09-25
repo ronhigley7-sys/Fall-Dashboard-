@@ -582,7 +582,7 @@ function rowToObject(sourceData, row) {
   return out;
 }
 
-function findingFromRow(row, fallbackType, sourceName, rowId) {
+function findingFromRow(row, fallbackType, sourceName, rowId, rowNumber) {
   const date = normalizeDate(pick(row, [
     'Audit Date',
     'Date',
@@ -607,6 +607,15 @@ function findingFromRow(row, fallbackType, sourceName, rowId) {
     statusText.includes('complete') ||
     statusText.includes('resolved')
   ) ? 'closed' : 'open';
+  const auditLineNumber = pick(row, [
+    'Audit Line Number',
+    'Audit Line #',
+    'Line Number',
+    'Line #',
+    'Audit Line',
+    'Audit #',
+    'Record Number',
+  ]) || (rowNumber ? String(rowNumber) : '');
 
   return {
     id: `ss_${type}_${rowId}`,
@@ -617,6 +626,7 @@ function findingFromRow(row, fallbackType, sourceName, rowId) {
     staff_names: staff,
     tags,
     variance_status: null,
+    audit_line_number: auditLineNumber || null,
   };
 }
 
@@ -670,7 +680,7 @@ async function main() {
     const data = await fetchSource(source);
     let mapped = 0;
     for (const row of data.rows || []) {
-      const finding = findingFromRow(rowToObject(data, row), source.auditType, data.name || source.name || '', row.id);
+      const finding = findingFromRow(rowToObject(data, row), source.auditType, data.name || source.name || '', row.id, row.rowNumber);
       if (!finding) continue;
       findings.push(finding);
       mapped += 1;
